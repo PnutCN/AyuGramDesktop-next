@@ -1,0 +1,112 @@
+name: macOS
+
+on:
+  push:
+    branches:
+      - ayu
+    tags:
+      - 'v*'
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'changelog.txt'
+      - 'LEGAL'
+      - 'LICENSE'
+      - 'lib/xdg/**'
+      - 'snap/**'
+      - 'Telegram/build/docker/**'
+      - 'Telegram/Resources/uwp/**'
+      - 'Telegram/Resources/winrc/**'
+      - 'Telegram/SourceFiles/platform/win/**'
+      - 'Telegram/SourceFiles/platform/linux/**'
+      - 'Telegram/configure.bat'
+  workflow_dispatch:
+    inputs:
+      only_cache:
+        description: '只构建依赖库缓存,不编译应用'
+        type: boolean
+        default: false
+
+jobs:
+  macos:
+    name: macOS (arm64)
+    runs-on: macos-latest
+
+    env:
+      PREPARE_PATH: "Telegram/build/prepare/prepare.py"
+      # 官方 Telegram Desktop 公开凭证,仅用于本地构建。
+      API_ID: 2040
+      API_HASH: b18441a1ff607e10a989891a5462e627
+
+    steps:
+      - name: Get repository name.
+        run: echo "REPO_NAME=${GITHUB_REPOSITORY##*/}" >> $GITHUB_ENV
+
+      - name: Clone.
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: ${{ env.REPO_NAME }}
+
+      - name: First set up.
+        run: |
+          brew install automake libtool meson nasm ninja pkg-config
+
+          # Spotlight 会索引构建产物,拖慢整个流程。
+          sudo mdutil -a -i off
+
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Libraries cache.
+        id: cache-libs
+        uses: actions/cache@v4
+        with:
+          path: |
+            Libraries
+            ThirdParty
+          key: ${{ runner.OS }}-libs-${{ hashFiles(format('{0}/{1}', env.REPO_NAME, env.PREPARE_PATH)) }}
+          restore-keys: ${{ runner.OS }}-libs-
+
+      - name: Libraries.
+        run: |
+          ./$REPO_NAME/Telegram/build/prepare/mac.sh skip-release silent
+
+      # 缓存有 10GB 上限,构建完成后中间产物必须清掉才存得下。
+      - name: Free up some disk space.
+        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
+
+      - name: AyuGram Next build.
+        if: github.event.inputs.only_cache != 'true'
+        run: |
+          cd $REPO_NAME/Telegram
+
+          ./configure.sh \
+          -D CMAKE_OSX_ARCHITECTURES=arm64 \
+          -D CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+          -D TDESKTOP_API_ID=$API_ID \
+          -D TDESKTOP_API_HASH=$API_HASH \
+          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
+
+          cmake --build ../out --config Release --parallel
+
+      - name: Package.
+        if: github.event.inputs.only_cache != 'true'
+        run: |
+          cd $REPO_NAME/out/Release
+          # 保留符号链接,否则 .app 内的 Frameworks 会损坏。
+          zip -r --symlinks AyuGramNext-macOS-arm64.zip AyuGramNext.app
+
+      - name: Upload artifact.
+        if: github.event.inputs.only_cache != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AyuGramNext-macOS-arm64
+          path: ${{ env.REPO_NAME }}/out/Release/AyuGramNext-macOS-arm64.zip
+          retention-days: 30
+
+      - name: Release.
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.REPO_NAME }}/out/Release/AyuGramNext-macOS-arm64.zip
+          generate_release_notes: true
