@@ -144,6 +144,30 @@ QString mediaDirectory() {
 	return path;
 }
 
+SavedMedia probeLocal(not_null<HistoryItem*> item) {
+	const auto media = item->media();
+	if (!media) {
+		return SavedMedia();
+	}
+	auto result = SavedMedia();
+	if (const auto document = media->document()) {
+		result.documentType = documentTypeOf(document);
+		result.mimeType = document->mimeString().toStdString();
+		const auto path = document->filepath(true);
+		if (!path.isEmpty() && QFileInfo::exists(path)) {
+			result.path = relativePath(path);
+		} else if (!document->createMediaView()->bytes().isEmpty()) {
+			// Cached but not on disk — a download through /media would
+			// materialise it, so report the type without a path.
+			result.mimeType = document->mimeString().toStdString();
+		}
+	} else if (const auto photo = media->photo()) {
+		result.documentType = MediaPhoto;
+		result.mimeType = "image/jpeg";
+	}
+	return result;
+}
+
 SavedMedia trySaveLocal(not_null<HistoryItem*> item) {
 	const auto media = item->media();
 	if (!media || !AyuSettings::getInstance().saveDeletedMedia()) {
