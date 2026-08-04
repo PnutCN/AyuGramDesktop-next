@@ -8658,6 +8658,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_SpyEssentialsHeader" = "Spy essentials";
 "ayu_SaveDeletedMessages" = "Save Deleted Messages";
 "ayu_SaveMessagesHistory" = "Save Edits History";
+"ayu_LocalApiEnabled" = "Local HTTP API";
+"ayu_LocalApiEnabledDescription" = "Serves chat history, including deleted messages, on 127.0.0.1. Reads local data only and never requests anything from the network.";
 "ayu_MessageSavingSaveMedia" = "Save Attachments";
 "ayu_MessageSavingSaveMediaHint" = "Configure chats & limits";
 "ayu_MessageSavingSaveMediaInPrivateChats" = "Private Chats";

@@ -6,6 +6,7 @@
 // Copyright @Radolyn, 2026
 #include "ayu/ayu_infra.h"
 
+#include "ayu/api/local_api_server.h"
 #include "ayu/ayu_lang.h"
 #include "ayu/ayu_settings.h"
 #include "ayu/ayu_ui_settings.h"
@@ -60,6 +61,10 @@ void initTranslator() {
 	Ayu::Translator::TranslateManager::init();
 }
 
+void initLocalApi() {
+	AyuApi::applySettings();
+}
+
 void initIcon() {
 #ifdef Q_OS_WIN
 	AyuAssets::loadAppIco();
@@ -75,6 +80,7 @@ void init() {
 	initWorker();
 	initRCManager();
 	initTranslator();
+	initLocalApi();
 }
 
 }

@@ -7,6 +7,7 @@
 #include "ayu/data/messages_storage.h"
 
 #include "ayu/data/ayu_database.h"
+#include "ayu/data/media_storage.h"
 #include "ayu/utils/ayu_mapper.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "base/unixtime.h"
@@ -74,21 +75,22 @@ void map(not_null<HistoryItem*> item, AyuMessageBase &message) {
 	message.text = serializedText.first;
 	message.textEntities = serializedText.second;
 
-	// todo: implement mapping
-	message.mediaPath = "/";
-	// message.hqThumbPath
-	message.documentType = 0; // document type none
-	// message.documentSerialized
-	// message.thumbsSerialized
-	// message.documentAttributesSerialized
-	// message.mimeType
+	const auto media = AyuMedia::trySaveLocal(item);
+	message.mediaPath = media.path;
+	message.documentType = media.documentType;
+	message.mimeType = media.mimeType;
+}
+
+[[nodiscard]] bool isWorthSaving(const AyuMessageBase &message) {
+	return !message.text.empty()
+		|| message.documentType != AyuMedia::MediaNone;
 }
 
 void addEditedMessage(not_null<HistoryItem *> item) {
 	EditedMessage message;
 	map(item, message);
 
-	if (message.text.empty()) {
+	if (!isWorthSaving(message)) {
 		return;
 	}
 
@@ -115,7 +117,7 @@ void addDeletedMessage(not_null<HistoryItem*> item) {
 	DeletedMessage message;
 	map(item, message);
 
-	if (message.text.empty()) {
+	if (!isWorthSaving(message)) {
 		return;
 	}
 
