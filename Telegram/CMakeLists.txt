@@ -248,6 +248,8 @@ set(ayugram_files
         ayu/data/entities.h
         ayu/data/ayu_database.cpp
         ayu/data/ayu_database.h
+        ayu/api/local_api_auth.cpp
+        ayu/api/local_api_auth.h
         ayu/api/local_api_server.cpp
         ayu/api/local_api_server.h
 

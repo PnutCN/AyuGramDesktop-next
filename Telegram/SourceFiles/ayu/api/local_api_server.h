@@ -7,6 +7,7 @@
 #pragma once
 
 #include <QtCore/QObject>
+#include <QtCore/QUrlQuery>
 #include <QtNetwork/QTcpServer>
 
 namespace AyuApi {
@@ -27,6 +28,7 @@ public:
 private:
 	void handleConnection();
 	void respond(QTcpSocket *socket, const QByteArray &request);
+	void sendMedia(QTcpSocket *socket, const QUrlQuery &query);
 
 	QTcpServer _server;
 };
