@@ -92,6 +92,13 @@ QString resetToken() {
 	return GlobalToken;
 }
 
+QString maskedToken() {
+	const auto value = token();
+	return (value.size() > 12)
+		? (value.left(8) + u"\u2022\u2022\u2022\u2022"_q + value.right(4))
+		: value;
+}
+
 bool authorized(const QString &header, const QString &fromQuery) {
 	const auto expected = token();
 	const auto provided = header.isEmpty()

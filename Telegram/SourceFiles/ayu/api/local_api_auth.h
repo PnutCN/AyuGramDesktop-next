@@ -15,6 +15,9 @@ namespace AyuApi {
 [[nodiscard]] QString token();
 [[nodiscard]] QString resetToken();
 
+// Shortened form for the settings row, so a screenshot does not leak it.
+[[nodiscard]] QString maskedToken();
+
 // Checks the Authorization / X-Ayu-Token header or the token query item.
 [[nodiscard]] bool authorized(const QString &header, const QString &fromQuery);
 
