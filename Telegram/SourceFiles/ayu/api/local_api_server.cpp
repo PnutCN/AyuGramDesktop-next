@@ -28,6 +28,8 @@
 #include "main/main_session.h"
 #include "settings.h"
 
+#include <QtCore/QDate>
+#include <QtCore/QDateTime>
 #include <QtCore/QDir>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
@@ -45,6 +47,8 @@ constexpr auto kDefaultLimit = 200;
 constexpr auto kMaxLimit = 5000;
 constexpr auto kPortProbeRange = 20;
 constexpr auto kMinPort = 1024;
+constexpr auto kScanBatchFactor = 4;
+constexpr auto kMaxScan = 20000;
 
 std::unique_ptr<LocalServer> GlobalServer;
 
@@ -485,6 +489,17 @@ struct MessageQuery
 	query.afterId = url.queryItemValue(u"after_id"_q).toLongLong();
 	query.since = url.queryItemValue(u"since"_q).toInt();
 	query.until = url.queryItemValue(u"until"_q).toInt();
+	// day=YYYY-MM-DD covers that whole local day, so a caller summarising
+	// "yesterday" does not have to compute timestamps itself.
+	const auto day = url.queryItemValue(u"day"_q);
+	if (!day.isEmpty()) {
+		const auto parsed = QDate::fromString(day, u"yyyy-MM-dd"_q);
+		if (parsed.isValid()) {
+			query.since = TimeId(QDateTime(parsed, QTime(0, 0)).toSecsSinceEpoch());
+			query.until = TimeId(
+				QDateTime(parsed, QTime(23, 59, 59)).toSecsSinceEpoch());
+		}
+	}
 	query.search = url.queryItemValue(u"q"_q);
 	query.fromUser = url.queryItemValue(u"from"_q).toLongLong();
 	query.filter = parseFilter(url.queryItemValue(u"filter"_q));
@@ -519,15 +534,53 @@ struct MessageQuery
 		}
 	}
 
-	// The database only understands message-id bounds, everything else is
-	// filtered after the rows come back.
-	const auto stored = AyuMessages::getDeletedMessages(
-		peer,
-		0,
-		query.afterId,
-		query.beforeId,
-		query.limit,
-		query.search);
+	// The database can only bound by message id, so a time range has to be
+	// applied afterwards. Taking a single batch would return the newest rows
+	// and then filter them all away, so batches are walked backwards until the
+	// range is covered or the scan budget runs out.
+	auto stored = std::vector<AyuMessageBase>();
+	{
+		const auto timeFiltered = (query.since || query.until);
+		const auto batch = timeFiltered
+			? std::min(query.limit * kScanBatchFactor, kMaxLimit)
+			: query.limit;
+		auto cursor = query.beforeId;
+		auto scanned = 0;
+		auto kept = 0;
+		while (true) {
+			const auto rows = AyuMessages::getDeletedMessages(
+				peer,
+				0,
+				query.afterId,
+				cursor,
+				batch,
+				query.search);
+			if (rows.empty()) {
+				break;
+			}
+			scanned += int(rows.size());
+			for (const auto &row : rows) {
+				if (query.since && row.date < query.since) {
+					continue;
+				}
+				if (query.until && row.date > query.until) {
+					continue;
+				}
+				stored.push_back(row);
+				++kept;
+			}
+			const auto oldest = rows.back().messageId;
+			// Rows come back newest first, so the oldest one is the next cursor.
+			if (!timeFiltered
+				|| kept >= query.limit
+				|| scanned >= kMaxScan
+				|| int(rows.size()) < batch
+				|| (query.since && rows.back().date < query.since)) {
+				break;
+			}
+			cursor = oldest;
+		}
+	}
 	for (const auto &message : stored) {
 		const auto id = ID(message.messageId);
 		if (byId.contains(id)) {
@@ -557,16 +610,76 @@ struct MessageQuery
 	return result;
 }
 
-[[nodiscard]] QJsonArray buildWarnings(const MessageQuery &query) {
+[[nodiscard]] QJsonArray buildWarnings(
+		const MessageQuery &query,
+		const QJsonArray &messages) {
 	auto warnings = QJsonArray();
+	if (messages.isEmpty()) {
+		warnings.append(u"nothing matched; the chat may never have been opened in this client"_q);
+	} else if (messages.size() >= query.limit) {
+		// Landing exactly on the limit usually means more is waiting behind it.
+		warnings.append(u"result reached the limit, page with before_id to continue"_q);
+	}
 	warnings.append(u"only locally loaded messages are returned; open and scroll the chat to load more"_q);
 	if (query.filter != Filter::Deleted) {
 		warnings.append(u"stored (deleted) messages carry no reply or forward details, AyuGram does not persist them"_q);
 	}
-	if (query.since || query.until || query.fromUser) {
-		warnings.append(u"time and sender filters are applied after the database query, so limit may cut results early"_q);
-	}
 	return warnings;
+}
+
+// Who was around and how much they said. A summarising client would otherwise
+// have to derive this from the raw list, which costs it tokens.
+[[nodiscard]] QJsonObject buildSummary(const QJsonArray &messages) {
+	auto perSender = base::flat_map<ID, std::pair<QString, int>>();
+	auto deleted = 0;
+	auto withMedia = 0;
+	auto earliest = std::numeric_limits<qint64>::max();
+	auto latest = std::numeric_limits<qint64>::min();
+
+	for (const auto &value : messages) {
+		const auto message = value.toObject();
+		const auto date = message["date"].toInteger();
+		earliest = std::min(earliest, date);
+		latest = std::max(latest, date);
+		if (message["deleted"].toBool()) {
+			++deleted;
+		}
+		if (message.contains("media") && !message["media"].isNull()) {
+			++withMedia;
+		}
+		const auto from = message["from"];
+		const auto id = from.isObject()
+			? ID(from.toObject()["id"].toInteger())
+			: ID(from.toInteger());
+		const auto name = from.isObject()
+			? from.toObject()["name"].toString()
+			: QString();
+		auto &entry = perSender[id];
+		if (entry.first.isEmpty()) {
+			entry.first = name;
+		}
+		++entry.second;
+	}
+
+	auto senders = QJsonArray();
+	for (const auto &[id, entry] : perSender) {
+		senders.append(QJsonObject{
+			{ "id", qint64(id) },
+			{ "name", entry.first.isEmpty() ? QJsonValue() : QJsonValue(entry.first) },
+			{ "messages", entry.second },
+		});
+	}
+
+	auto json = QJsonObject();
+	json["total"] = messages.size();
+	json["deleted"] = deleted;
+	json["with_media"] = withMedia;
+	json["senders"] = senders;
+	if (!messages.isEmpty()) {
+		json["first_date"] = earliest;
+		json["last_date"] = latest;
+	}
+	return json;
 }
 
 [[nodiscard]] QByteArray httpResponse(
@@ -622,6 +735,45 @@ struct MessageQuery
 	return QJsonDocument(json).toJson(QJsonDocument::Compact);
 }
 
+// A flat transcript. Feeding JSON to a language model wastes a large share of
+// the context on punctuation and repeated keys.
+[[nodiscard]] QByteArray renderTranscript(
+		not_null<PeerData*> peer,
+		const QJsonArray &messages) {
+	auto out = QString();
+	out += u"# %1\n\n"_q.arg(peer->name());
+	for (const auto &value : messages) {
+		const auto message = value.toObject();
+		const auto from = message["from"];
+		auto who = QString();
+		if (from.isObject()) {
+			const auto object = from.toObject();
+			who = object["name"].toString();
+			if (who.isEmpty()) {
+				who = u"#%1"_q.arg(object["id"].toInteger());
+			}
+		} else {
+			who = u"#%1"_q.arg(from.toInteger());
+		}
+		const auto stamp = QDateTime::fromSecsSinceEpoch(
+			message["date"].toInteger()).toString(u"MM-dd HH:mm"_q);
+		out += u"[%1] %2"_q.arg(stamp, who);
+		if (message["deleted"].toBool()) {
+			out += u" (deleted)"_q;
+		}
+		if (const auto reply = message["reply_to"]; !reply.isNull()) {
+			out += u" (re #%1)"_q.arg(reply.toInteger());
+		}
+		const auto media = message["media"];
+		if (media.isObject()) {
+			out += u" [%1]"_q.arg(media.toObject()["type"].toString());
+		}
+		const auto text = message["text"].toString();
+		out += u": "_q + (text.isEmpty() ? u"—"_q : text) + u"\n"_q;
+	}
+	return out.toUtf8();
+}
+
 [[nodiscard]] QByteArray routeMessages(const QUrlQuery &url) {
 	const auto session = activeSession();
 	if (!session) {
@@ -636,11 +788,16 @@ struct MessageQuery
 		return errorBody(u"peer not found locally"_q);
 	}
 
+	const auto messages = collectMessages(peer, query, session);
+	if (url.queryItemValue(u"format"_q) == u"text"_q) {
+		return renderTranscript(peer, messages);
+	}
 	auto json = QJsonObject();
 	json["peer"] = qint64(query.dialogId);
 	json["name"] = peer->name();
-	json["messages"] = collectMessages(peer, query, session);
-	json["warnings"] = buildWarnings(query);
+	json["messages"] = messages;
+	json["summary"] = buildSummary(messages);
+	json["warnings"] = buildWarnings(query, messages);
 	return QJsonDocument(json).toJson(QJsonDocument::Compact);
 }
 
@@ -1067,7 +1224,13 @@ void LocalServer::respond(QTcpSocket *socket, const QByteArray &request) {
 	if (path == u"/chats"_q) {
 		socket->write(httpResponse(200, routeChats(query)));
 	} else if (path == u"/messages"_q) {
-		socket->write(httpResponse(200, routeMessages(query)));
+		const auto plain = (query.queryItemValue(u"format"_q) == u"text"_q);
+		socket->write(httpResponse(
+			200,
+			routeMessages(query),
+			plain
+				? "text/plain; charset=utf-8"
+				: "application/json; charset=utf-8"));
 	} else if (path == u"/media"_q) {
 		sendMedia(socket, query);
 		return;
