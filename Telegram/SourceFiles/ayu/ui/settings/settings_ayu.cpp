@@ -34,6 +34,7 @@
 #include "ui/text/text.h"
 #include "ui/toast/toast.h"
 #include "ayu/api/local_api_auth.h"
+#include "ayu/api/local_api_server.h"
 
 #include <QtGui/QClipboard>
 #include <QtGui/QGuiApplication>
@@ -668,6 +669,30 @@ void BuildSpyEssentials(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	});
 	const auto shownWhenApiEnabled = AyuSettings::getInstance()
 		.localApiEnabledValue();
+	ayu.base().addButton({
+		.id = u"ayu/localApiPort"_q,
+		.title = tr::ayu_LocalApiPort(),
+		// The effective port can differ from the configured one when that was
+		// already taken, so the address is read back from the server.
+		.label = AyuSettings::getInstance().localApiPortValue(
+		) | rpl::map([](int port) {
+			const auto server = AyuApi::instance();
+			const auto actual = (server && server->listening())
+				? server->port()
+				: quint16(port);
+			return u"127.0.0.1:%1"_q.arg(actual);
+		}),
+		.onClick = [] {
+			const auto server = AyuApi::instance();
+			const auto port = (server && server->listening())
+				? server->port()
+				: quint16(AyuSettings::getInstance().localApiPort());
+			QGuiApplication::clipboard()->setText(
+				u"http://127.0.0.1:%1"_q.arg(port));
+			Ui::Toast::Show(tr::ayu_LocalApiAddressCopied(tr::now));
+		},
+		.shown = rpl::duplicate(shownWhenApiEnabled),
+	});
 	ayu.base().addButton({
 		.id = u"ayu/localApiCopyToken"_q,
 		.title = tr::ayu_LocalApiCopyToken(),

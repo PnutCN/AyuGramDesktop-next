@@ -107,9 +107,15 @@ bool authorized(const QString &header, const QString &fromQuery) {
 	return sameToken(expected, provided);
 }
 
-bool originAllowed(const QString &origin) {
-	// Scripts and curl do not send Origin; browsers always do.
-	return origin.isEmpty();
+bool originAllowed(const QString &origin, quint16 port) {
+	if (origin.isEmpty()) {
+		// Scripts and curl send no Origin at all.
+		return true;
+	}
+	// The built-in docs page runs on this very origin, so its requests are
+	// allowed through; anything else in a browser is not.
+	return (origin == u"http://127.0.0.1:%1"_q.arg(port))
+		|| (origin == u"http://localhost:%1"_q.arg(port));
 }
 
 bool hostAllowed(const QString &host, quint16 port) {
