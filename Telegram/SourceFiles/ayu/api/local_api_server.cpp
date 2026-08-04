@@ -43,6 +43,8 @@ namespace {
 
 constexpr auto kDefaultLimit = 200;
 constexpr auto kMaxLimit = 5000;
+constexpr auto kPortProbeRange = 20;
+constexpr auto kMinPort = 1024;
 
 std::unique_ptr<LocalServer> GlobalServer;
 
@@ -729,6 +731,211 @@ struct MediaLookup
 	return result;
 }
 
+// Served at /openapi.json so a client can discover the surface without
+// consulting the source. Kept in sync by hand with the routes below.
+[[nodiscard]] QByteArray routeOpenApi(quint16 port) {
+	const auto server = u"http://127.0.0.1:%1"_q.arg(port);
+	const auto text = uR"JSON({
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AyuGram Next local API",
+    "version": "1.0.0",
+    "description": "Read-only access to locally cached chats and to messages AyuGram saved after they were deleted. Every response is built from local data; the API never performs a network request of its own. Bound to 127.0.0.1 only."
+  },
+  "servers": [{ "url": "%1" }],
+  "security": [{ "bearerAuth": [] }, { "tokenQuery": [] }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "Authorization: Bearer <token>. The token is stored in tdata/ayu_api_token and can be copied from Settings > AyuGram > Spy essentials." },
+      "tokenQuery": { "type": "apiKey", "in": "query", "name": "token", "description": "Same token as a query item, for players and browsers that cannot set headers." }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "string" } }
+      },
+      "Sender": {
+        "description": "A plain number when resolve_names is off, an object when it is on. name/username/type are null for peers that were never fully loaded locally.",
+        "oneOf": [
+          { "type": "integer", "format": "int64" },
+          {
+            "type": "object",
+            "properties": {
+              "id": { "type": "integer", "format": "int64" },
+              "name": { "type": ["string", "null"] },
+              "username": { "type": ["string", "null"] },
+              "type": { "type": ["string", "null"], "enum": ["user", "bot", "group", "supergroup", "channel", null] }
+            }
+          }
+        ]
+      },
+      "Media": {
+        "type": ["object", "null"],
+        "properties": {
+          "type": { "type": "string", "enum": ["photo", "video", "voice", "audio", "sticker", "gif", "file"] },
+          "mime": { "type": "string" },
+          "cached": { "type": "boolean", "description": "False when only metadata survives: the file was never opened, so it was never stored." },
+          "path": { "type": ["string", "null"], "description": "Relative to the working directory. Prefer GET /media over reading this." }
+        }
+      },
+      "Entity": {
+        "type": "object",
+        "description": "offset and length count UTF-16 code units, see entities_encoding.",
+        "properties": {
+          "type": { "type": "string", "enum": ["url", "text_link", "email", "hashtag", "cashtag", "mention", "mention_name", "custom_emoji", "bot_command", "media_timestamp", "phone", "bank_card", "bold", "semibold", "italic", "underline", "strikethrough", "code", "pre", "blockquote", "spoiler", "subscript", "superscript"] },
+          "offset": { "type": "integer" },
+          "length": { "type": "integer" },
+          "data": { "type": "string" }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "required": ["id", "date", "from", "text", "deleted", "source"],
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "date": { "type": "integer", "format": "int64", "description": "Unix seconds." },
+          "from": { "$ref": "#/components/schemas/Sender" },
+          "text": { "type": "string" },
+          "deleted": { "type": "boolean" },
+          "out": { "type": "boolean", "description": "Only present on live messages." },
+          "source": { "type": "string", "enum": ["live", "stored"], "description": "live comes from the loaded history, stored from the deleted-message database." },
+          "deleted_at": { "type": "integer", "format": "int64", "description": "When AyuGram recorded the deletion. Stored messages only." },
+          "kind": { "type": "string", "enum": ["message", "service"] },
+          "text_truncated": { "type": "boolean", "description": "Service text is capped at 255 characters upstream." },
+          "reply_to": { "type": ["integer", "null"], "format": "int64", "description": "Always null on stored messages, AyuGram does not persist it." },
+          "media": { "$ref": "#/components/schemas/Media" },
+          "entities": { "type": "array", "items": { "$ref": "#/components/schemas/Entity" } },
+          "entities_encoding": { "type": "string", "const": "utf16" },
+          "forward": { "type": ["object", "null"], "description": "Live messages only.", "properties": { "date": { "type": "integer" }, "message_id": { "type": "integer" }, "from": { "type": "object" }, "post_author": { "type": "string" } } },
+          "reply": { "type": ["object", "null"], "description": "Live messages only. text is null when the replied-to message is not loaded.", "properties": { "message_id": { "type": "integer" }, "quote": { "type": "string" }, "external_sender": { "type": "string" }, "text": { "type": ["string", "null"] } } },
+          "reactions": { "type": ["array", "null"], "items": { "type": "object", "properties": { "emoji": { "type": ["string", "null"] }, "custom_emoji_id": { "type": "string" }, "count": { "type": "integer" }, "chosen": { "type": "boolean" } } } },
+          "views": { "type": ["integer", "null"], "description": "Null when the message carries no view counter." },
+          "edited_at": { "type": ["integer", "null"], "format": "int64" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Liveness probe",
+        "description": "The only endpoint that does not require a token.",
+        "security": [],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string" }, "version": { "type": "string" }, "session": { "type": "boolean", "description": "False when no account is signed in." } } } } } } }
+      }
+    },
+    "/openapi.json": {
+      "get": { "summary": "This document", "security": [], "responses": { "200": { "description": "OK" } } }
+    },
+    "/docs": {
+      "get": { "summary": "Swagger UI for this schema", "description": "Paste the token into the field at the top, then use Try it out on any endpoint.", "security": [], "responses": { "200": { "description": "HTML page" } } }
+    },
+    "/chats": {
+      "get": {
+        "summary": "List locally known chats",
+        "parameters": [
+          { "name": "with_counts", "in": "query", "schema": { "type": "string", "enum": ["1"] }, "description": "Adds has_deleted per chat. Costs one database probe per chat." }
+        ],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "chats": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "integer", "format": "int64", "description": "Signed dialog id: negative for groups and channels. Pass this as peer." }, "name": { "type": "string" }, "type": { "type": "string" }, "username": { "type": "string" }, "has_deleted": { "type": "boolean" } } } } } } } } },
+          "401": { "description": "Missing or invalid token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/messages": {
+      "get": {
+        "summary": "Read messages, merging loaded history with deleted ones",
+        "description": "Returns only messages already loaded into the client plus everything the deleted-message database holds. Messages that were never scrolled into view are not available, because fetching them would require a network request.",
+        "parameters": [
+          { "name": "peer", "in": "query", "required": true, "schema": { "type": "integer", "format": "int64" }, "description": "Signed dialog id from /chats." },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 200, "minimum": 1, "maximum": 5000 } },
+          { "name": "before_id", "in": "query", "schema": { "type": "integer", "format": "int64" }, "description": "Exclusive upper bound on message id, for paging backwards." },
+          { "name": "after_id", "in": "query", "schema": { "type": "integer", "format": "int64" }, "description": "Exclusive lower bound on message id." },
+          { "name": "since", "in": "query", "schema": { "type": "integer" }, "description": "Unix seconds. Applied after the database query, so limit may cut results early." },
+          { "name": "until", "in": "query", "schema": { "type": "integer" }, "description": "Unix seconds, same caveat as since." },
+          { "name": "q", "in": "query", "schema": { "type": "string" }, "description": "Substring match on the message text." },
+          { "name": "from", "in": "query", "schema": { "type": "integer", "format": "int64" }, "description": "Keep only messages from this sender id." },
+          { "name": "filter", "in": "query", "schema": { "type": "string", "enum": ["all", "deleted", "media", "service"], "default": "all" } },
+          { "name": "fields", "in": "query", "schema": { "type": "string", "default": "basic" }, "description": "Comma separated: media, entities, forward, reply, reactions, views, raw_flags, or all. Extra fields cost extra work, so they are off by default." },
+          { "name": "resolve_names", "in": "query", "schema": { "type": "string", "enum": ["1"] }, "description": "Turn the from field into an object carrying name and username." }
+        ],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "peer": { "type": "integer", "format": "int64" }, "name": { "type": "string" }, "messages": { "type": "array", "items": { "$ref": "#/components/schemas/Message" } }, "warnings": { "type": "array", "items": { "type": "string" }, "description": "States which limits applied to this particular response." } } } } } },
+          "400": { "description": "Missing or malformed peer", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Missing or invalid token" }
+        }
+      }
+    },
+    "/media": {
+      "get": {
+        "summary": "Download the media attached to one message",
+        "description": "The file path is never taken from the request; it is resolved again from peer and msg_id and then verified to sit inside the media directory. Active content types are downgraded to application/octet-stream so that markup cannot execute on this origin.",
+        "parameters": [
+          { "name": "peer", "in": "query", "required": true, "schema": { "type": "integer", "format": "int64" } },
+          { "name": "msg_id", "in": "query", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "File contents", "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } },
+          "404": { "description": "No media, or it was never cached locally", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    }
+  }
+})JSON"_q;
+	return text.arg(server).toUtf8();
+}
+
+// Swagger UI, so the schema can be browsed and endpoints tried out from a
+// browser. The assets come from a CDN — that fetch is the browser's, the API
+// itself still never reaches the network.
+[[nodiscard]] QByteArray routeDocs() {
+	return uR"HTML(<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AyuGram Next local API</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+<style>
+body { margin: 0; background: #fafafa; }
+.topbar { display: none; }
+#token-bar { padding: 12px 20px; background: #1b1b1f; color: #eee;
+	font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+#token-bar input { width: 380px; padding: 6px 8px; margin-left: 8px;
+	border: 1px solid #444; border-radius: 4px; background: #2a2a30; color: #eee; }
+#token-bar span { opacity: .7; margin-left: 12px; }
+</style>
+</head>
+<body>
+<div id="token-bar">
+	<label>API token<input id="token" type="password" placeholder="ayu_..."></label>
+	<span>Settings &rsaquo; AyuGram &rsaquo; Spy essentials &rsaquo; Copy API token</span>
+</div>
+<div id="swagger-ui"></div>
+<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>
+const saved = localStorage.getItem('ayu_api_token') || '';
+const field = document.getElementById('token');
+field.value = saved;
+field.addEventListener('input', () => localStorage.setItem('ayu_api_token', field.value));
+
+SwaggerUIBundle({
+	url: '/openapi.json',
+	dom_id: '#swagger-ui',
+	deepLinking: true,
+	tryItOutEnabled: true,
+	requestInterceptor: (request) => {
+		const token = document.getElementById('token').value.trim();
+		if (token) {
+			request.headers['Authorization'] = 'Bearer ' + token;
+		}
+		return request;
+	},
+});
+</script>
+</body>
+</html>)HTML"_q.toUtf8();
+}
+
 [[nodiscard]] QByteArray routeHealth() {
 	const auto session = activeSession();
 	auto json = QJsonObject();
@@ -812,7 +1019,7 @@ void LocalServer::respond(QTcpSocket *socket, const QByteArray &request) {
 	const auto path = url.path();
 	const auto query = QUrlQuery(url);
 
-	if (!originAllowed(header(u"origin"_q))) {
+	if (!originAllowed(header(u"origin"_q), port())) {
 		socket->write(httpResponse(403, errorBody(u"cross-origin requests are refused"_q)));
 		socket->disconnectFromHost();
 		return;
@@ -829,8 +1036,21 @@ void LocalServer::respond(QTcpSocket *socket, const QByteArray &request) {
 		return;
 	}
 
+	// Liveness and the schema describe the service, not its data, so they stay
+	// reachable without a token.
 	if (path == u"/health"_q) {
 		socket->write(httpResponse(200, routeHealth()));
+		socket->disconnectFromHost();
+		return;
+	} else if (path == u"/openapi.json"_q) {
+		socket->write(httpResponse(200, routeOpenApi(port())));
+		socket->disconnectFromHost();
+		return;
+	} else if (path == u"/docs"_q || path == u"/docs/"_q) {
+		socket->write(httpResponse(
+			200,
+			routeDocs(),
+			"text/html; charset=utf-8"));
 		socket->disconnectFromHost();
 		return;
 	}
@@ -908,7 +1128,7 @@ void LocalServer::sendMedia(QTcpSocket *socket, const QUrlQuery &query) {
 }
 
 void applySettings() {
-	const auto &settings = AyuSettings::getInstance();
+	auto &settings = AyuSettings::getInstance();
 	if (!GlobalServer) {
 		GlobalServer = std::make_unique<LocalServer>();
 	}
@@ -916,15 +1136,29 @@ void applySettings() {
 		GlobalServer->stop();
 		return;
 	}
-	const auto port = quint16(settings.localApiPort());
-	if (GlobalServer->listening() && GlobalServer->port() == port) {
+	const auto configured = quint16(settings.localApiPort());
+	if (GlobalServer->listening() && GlobalServer->port() == configured) {
 		return;
 	}
-	if (!GlobalServer->start(port)) {
-		LOG(("AyuGram API: failed to listen on port %1").arg(port));
-	} else {
-		LOG(("AyuGram API: listening on 127.0.0.1:%1").arg(port));
+	if (GlobalServer->start(configured)) {
+		LOG(("AyuGram API: listening on 127.0.0.1:%1").arg(configured));
+		return;
 	}
+	// The configured port is taken, so walk forward a little and persist
+	// whatever works — otherwise the API silently appears dead.
+	for (auto offset = 1; offset != kPortProbeRange; ++offset) {
+		const auto candidate = quint16(configured + offset);
+		if (candidate < kMinPort) {
+			break;
+		}
+		if (GlobalServer->start(candidate)) {
+			LOG(("AyuGram API: port %1 was busy, listening on %2"
+				).arg(configured).arg(candidate));
+			settings.setLocalApiPort(candidate);
+			return;
+		}
+	}
+	LOG(("AyuGram API: no free port near %1").arg(configured));
 }
 
 LocalServer *instance() {

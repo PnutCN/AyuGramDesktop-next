@@ -23,7 +23,7 @@ namespace AyuApi {
 
 // A page in a browser can reach 127.0.0.1, so requests carrying an Origin are
 // refused outright, and Host is pinned to loopback to stop DNS rebinding.
-[[nodiscard]] bool originAllowed(const QString &origin);
+[[nodiscard]] bool originAllowed(const QString &origin, quint16 port);
 [[nodiscard]] bool hostAllowed(const QString &host, quint16 port);
 
 }

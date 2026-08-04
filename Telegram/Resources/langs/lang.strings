@@ -8663,7 +8663,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_LocalApiTokenCopied" = "API token copied";
 "ayu_LocalApiResetToken" = "Reset API token";
 "ayu_LocalApiTokenReset" = "New API token generated and copied. Clients using the old one must be updated.";
-"ayu_LocalApiEnabledDescription" = "Serves chat history, including deleted messages, on 127.0.0.1. Reads local data only and never requests anything from the network.";
+"ayu_LocalApiEnabledDescription" = "Serves chat history, including deleted messages, on 127.0.0.1. Reads local data only and never requests anything from the network. The OpenAPI schema is at /openapi.json.";
+"ayu_LocalApiPort" = "API port";
+"ayu_LocalApiPortTitle" = "Local API port";
+"ayu_LocalApiPortAbout" = "Port on 127.0.0.1 to listen on. Takes effect immediately.";
+"ayu_LocalApiPortTaken" = "Port {port} could not be opened, it may be in use.";
+"ayu_LocalApiAddressCopied" = "API address copied";
 "ayu_MessageSavingSaveMedia" = "Save Attachments";
 "ayu_MessageSavingSaveMediaHint" = "Configure chats & limits";
 "ayu_MessageSavingSaveMediaInPrivateChats" = "Private Chats";
