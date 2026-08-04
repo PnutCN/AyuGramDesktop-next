@@ -17,9 +17,11 @@
 #include "data/data_chat.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
+#include "data/data_message_reaction_id.h"
 #include "data/data_user.h"
 #include "history/history.h"
 #include "history/history_item.h"
+#include "history/history_item_components.h"
 #include "history/view/history_view_element.h"
 #include "main/main_account.h"
 #include "main/main_domain.h"
@@ -194,6 +196,121 @@ struct MessageQuery
 	return json;
 }
 
+[[nodiscard]] QString entityTypeName(EntityType type) {
+	switch (type) {
+	case EntityType::Url: return u"url"_q;
+	case EntityType::CustomUrl: return u"text_link"_q;
+	case EntityType::Email: return u"email"_q;
+	case EntityType::Hashtag: return u"hashtag"_q;
+	case EntityType::Cashtag: return u"cashtag"_q;
+	case EntityType::Mention: return u"mention"_q;
+	case EntityType::MentionName: return u"mention_name"_q;
+	case EntityType::CustomEmoji: return u"custom_emoji"_q;
+	case EntityType::BotCommand: return u"bot_command"_q;
+	case EntityType::MediaTimestamp: return u"media_timestamp"_q;
+	case EntityType::Phone: return u"phone"_q;
+	case EntityType::BankCard: return u"bank_card"_q;
+	case EntityType::Bold: return u"bold"_q;
+	case EntityType::Semibold: return u"semibold"_q;
+	case EntityType::Italic: return u"italic"_q;
+	case EntityType::Underline: return u"underline"_q;
+	case EntityType::StrikeOut: return u"strikethrough"_q;
+	case EntityType::Code: return u"code"_q;
+	case EntityType::Pre: return u"pre"_q;
+	case EntityType::Blockquote: return u"blockquote"_q;
+	case EntityType::Spoiler: return u"spoiler"_q;
+	case EntityType::Subscript: return u"subscript"_q;
+	case EntityType::Superscript: return u"superscript"_q;
+	default: break;
+	}
+	return QString();
+}
+
+// Offsets are UTF-16 code units, which is what Qt stores. Consumers working in
+// UTF-8 must convert, so the unit is reported alongside.
+[[nodiscard]] QJsonArray entitiesJson(const EntitiesInText &entities) {
+	auto result = QJsonArray();
+	for (const auto &entity : entities) {
+		const auto name = entityTypeName(entity.type());
+		if (name.isEmpty()) {
+			continue;
+		}
+		auto json = QJsonObject();
+		json["type"] = name;
+		json["offset"] = entity.offset();
+		json["length"] = entity.length();
+		if (!entity.data().isEmpty()) {
+			json["data"] = entity.data();
+		}
+		result.append(json);
+	}
+	return result;
+}
+
+[[nodiscard]] QJsonValue forwardJson(not_null<HistoryItem*> item) {
+	const auto forwarded = item->Get<HistoryMessageForwarded>();
+	if (!forwarded) {
+		return QJsonValue();
+	}
+	auto json = QJsonObject();
+	json["date"] = qint64(forwarded->originalDate);
+	json["message_id"] = qint64(forwarded->originalId.bare);
+	if (const auto sender = forwarded->originalSender) {
+		json["from"] = QJsonObject{
+			{ "id", qint64(getDialogIdFromPeer(sender)) },
+			{ "name", sender->name() },
+		};
+	} else if (const auto hidden = forwarded->originalHiddenSenderInfo.get()) {
+		json["from"] = QJsonObject{
+			{ "id", QJsonValue() },
+			{ "name", hidden->name },
+		};
+	}
+	if (!forwarded->originalPostAuthor.isEmpty()) {
+		json["post_author"] = forwarded->originalPostAuthor;
+	}
+	return json;
+}
+
+[[nodiscard]] QJsonValue replyJson(not_null<HistoryItem*> item) {
+	const auto reply = item->Get<HistoryMessageReply>();
+	if (!reply) {
+		return QJsonValue();
+	}
+	const auto &fields = reply->fields();
+	auto json = QJsonObject();
+	json["message_id"] = qint64(fields.messageId.bare);
+	if (!fields.quote.text.isEmpty()) {
+		json["quote"] = fields.quote.text;
+	}
+	if (!fields.externalSenderName.isEmpty()) {
+		json["external_sender"] = fields.externalSenderName;
+	}
+	// The referenced message may simply not be loaded locally.
+	if (const auto original = reply->resolvedMessage.get()) {
+		json["text"] = original->originalText().text;
+	} else {
+		json["text"] = QJsonValue();
+	}
+	return json;
+}
+
+[[nodiscard]] QJsonValue reactionsJson(not_null<HistoryItem*> item) {
+	auto result = QJsonArray();
+	for (const auto &reaction : item->reactions()) {
+		auto json = QJsonObject();
+		const auto emoji = reaction.id.emoji();
+		json["emoji"] = emoji.isEmpty() ? QJsonValue() : QJsonValue(emoji);
+		if (const auto custom = reaction.id.custom()) {
+			json["custom_emoji_id"] = QString::number(custom);
+		}
+		json["count"] = reaction.count;
+		json["chosen"] = reaction.my;
+		result.append(json);
+	}
+	return result.isEmpty() ? QJsonValue() : QJsonValue(result);
+}
+
 [[nodiscard]] QJsonObject itemJson(
 		not_null<HistoryItem*> item,
 		const MessageQuery &query,
@@ -202,10 +319,22 @@ struct MessageQuery
 	json["id"] = qint64(item->id.bare);
 	json["date"] = qint64(item->date());
 	json["from"] = senderJson(item->from(), query.resolveNames);
-	json["text"] = item->originalText().text;
 	json["deleted"] = item->isDeleted();
 	json["out"] = item->out();
 	json["source"] = u"live"_q;
+
+	const auto service = item->isService();
+	json["kind"] = service ? u"service"_q : u"message"_q;
+	if (service) {
+		// originalText() is empty for service messages; the description lives
+		// in notificationText(), which truncates past 255 characters.
+		const auto text = item->notificationText().text;
+		json["text"] = text;
+		json["text_truncated"] = (text.size() >= 255);
+	} else {
+		json["text"] = item->originalText().text;
+	}
+
 	if (const auto reply = item->replyToId()) {
 		json["reply_to"] = qint64(reply.bare);
 	} else {
@@ -215,6 +344,26 @@ struct MessageQuery
 		// probeLocal, not trySaveLocal — listing must not write to disk.
 		const auto media = AyuMedia::probeLocal(item);
 		json["media"] = mediaJson(media.documentType, media.path, media.mimeType);
+	}
+	if (query.fields & FieldEntities) {
+		json["entities"] = entitiesJson(item->originalText().entities);
+		json["entities_encoding"] = u"utf16"_q;
+	}
+	if (query.fields & FieldForward) {
+		json["forward"] = forwardJson(item);
+	}
+	if (query.fields & FieldReply) {
+		json["reply"] = replyJson(item);
+	}
+	if (query.fields & FieldReactions) {
+		json["reactions"] = reactionsJson(item);
+	}
+	if (query.fields & FieldViews) {
+		const auto views = item->viewsCount();
+		// -1 means the message carries no view counter at all.
+		json["views"] = (views < 0) ? QJsonValue() : QJsonValue(views);
+		const auto edited = item->Get<HistoryMessageEdited>();
+		json["edited_at"] = edited ? QJsonValue(qint64(edited->date)) : QJsonValue();
 	}
 	return json;
 }

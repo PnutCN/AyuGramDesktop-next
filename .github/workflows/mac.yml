@@ -67,13 +67,17 @@ jobs:
           key: ${{ runner.OS }}-libs-${{ hashFiles(format('{0}/{1}', env.REPO_NAME, env.PREPARE_PATH)) }}
           restore-keys: ${{ runner.OS }}-libs-
 
+      # 不能加 skip-release:那会跳过 release scope 的构建,产出的 Qt 只有
+      # libQt6Gui_debug.a 而没有 libQt6Gui.a,Release 编译随即链接失败。
       - name: Libraries.
         run: |
-          ./$REPO_NAME/Telegram/build/prepare/mac.sh skip-release silent
+          ./$REPO_NAME/Telegram/build/prepare/mac.sh silent
 
-      # 缓存有 10GB 上限,构建完成后中间产物必须清掉才存得下。
+      # 缓存有 10GB 上限,中间产物必须裁掉才存得下。仅在需要写入新缓存时执行,
+      # 命中缓存时跳过,避免误删已经就绪的库。
       - name: Free up some disk space.
-        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
+        if: steps.cache-libs.outputs.cache-hit != 'true'
+        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.prl' -o -name '*.pri' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
 
       - name: AyuGram Next build.
         if: github.event.inputs.only_cache != 'true'
