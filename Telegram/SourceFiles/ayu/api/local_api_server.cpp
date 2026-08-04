@@ -6,6 +6,7 @@
 // Copyright @Radolyn, 2026
 #include "ayu/api/local_api_server.h"
 
+#include "ayu/api/local_api_auth.h"
 #include "ayu/ayu_settings.h"
 #include "ayu/data/media_storage.h"
 #include "ayu/data/messages_storage.h"
@@ -23,10 +24,15 @@
 #include "main/main_account.h"
 #include "main/main_domain.h"
 #include "main/main_session.h"
+#include "settings.h"
 
+#include <QtCore/QDir>
+#include <QtCore/QFile>
+#include <QtCore/QFileInfo>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
+#include <QtCore/QMimeDatabase>
 #include <QtCore/QUrlQuery>
 #include <QtNetwork/QTcpSocket>
 
@@ -419,6 +425,7 @@ struct MessageQuery
 	const auto status = (code == 200)
 		? "200 OK"
 		: (code == 401) ? "401 Unauthorized"
+		: (code == 403) ? "403 Forbidden"
 		: (code == 404) ? "404 Not Found" : "400 Bad Request";
 	return "HTTP/1.1 " + QByteArray(status) + "\r\n"
 		"Content-Type: " + contentType + "\r\n"
@@ -486,6 +493,93 @@ struct MessageQuery
 	return QJsonDocument(json).toJson(QJsonDocument::Compact);
 }
 
+// Serving HTML or SVG from the API origin would let that markup read every
+// other endpoint with the browser's credentials, so active types are forced
+// to a download.
+[[nodiscard]] QByteArray safeContentType(const QString &mime) {
+	static const auto kActive = std::array{
+		u"text/html"_q,
+		u"application/xhtml+xml"_q,
+		u"image/svg+xml"_q,
+		u"text/xml"_q,
+		u"application/xml"_q,
+		u"application/javascript"_q,
+		u"text/javascript"_q,
+	};
+	const auto lowered = mime.toLower();
+	for (const auto &active : kActive) {
+		if (lowered.startsWith(active)) {
+			return "application/octet-stream";
+		}
+	}
+	return mime.isEmpty()
+		? QByteArray("application/octet-stream")
+		: mime.toUtf8();
+}
+
+// The path comes from the database, so it is re-anchored under the media
+// directory and canonicalised before anything is opened.
+[[nodiscard]] QString resolveMediaPath(const QString &stored) {
+	if (stored.isEmpty() || stored.contains(u".."_q)) {
+		return QString();
+	}
+	const auto absolute = QDir(cWorkingDir()).absoluteFilePath(stored);
+	const auto canonical = QFileInfo(absolute).canonicalFilePath();
+	if (canonical.isEmpty()) {
+		return QString();
+	}
+	const auto root = QFileInfo(AyuMedia::mediaDirectory()).canonicalFilePath();
+	if (root.isEmpty() || !canonical.startsWith(root + u"/"_q)) {
+		return QString();
+	}
+	return QFileInfo(canonical).isFile() ? canonical : QString();
+}
+
+struct MediaLookup
+{
+	QString path;
+	QString mime;
+	QString error;
+};
+
+[[nodiscard]] MediaLookup lookupMedia(
+		not_null<Main::Session*> session,
+		not_null<PeerData*> peer,
+		ID messageId) {
+	auto result = MediaLookup();
+
+	for (const auto &message : AyuMessages::getDeletedMessages(
+			peer,
+			0,
+			messageId - 1,
+			messageId + 1,
+			1)) {
+		if (message.messageId != messageId) {
+			continue;
+		}
+		result.path = resolveMediaPath(QString::fromStdString(message.mediaPath));
+		result.mime = QString::fromStdString(message.mimeType);
+		if (result.path.isEmpty()) {
+			result.error = u"media was never cached locally"_q;
+		}
+		return result;
+	}
+
+	const auto item = session->data().message(peer->id, MsgId(messageId));
+	if (!item) {
+		result.error = u"message not found locally"_q;
+		return result;
+	}
+	// Only here may the file be materialised, and only for a single message.
+	const auto media = AyuMedia::trySaveLocal(item);
+	result.mime = QString::fromStdString(media.mimeType);
+	result.path = resolveMediaPath(QString::fromStdString(media.path));
+	if (result.path.isEmpty()) {
+		result.error = u"media was never cached locally"_q;
+	}
+	return result;
+}
+
 [[nodiscard]] QByteArray routeHealth() {
 	const auto session = activeSession();
 	auto json = QJsonObject();
@@ -533,26 +627,134 @@ void LocalServer::handleConnection() {
 }
 
 void LocalServer::respond(QTcpSocket *socket, const QByteArray &request) {
-	const auto head = QString::fromUtf8(request.left(request.indexOf('\r')));
-	const auto parts = head.split(' ');
+	const auto text = QString::fromUtf8(request);
+	const auto lines = text.split(u"\r\n"_q);
+	if (lines.isEmpty()) {
+		socket->write(httpResponse(400, errorBody(u"malformed request"_q)));
+		socket->disconnectFromHost();
+		return;
+	}
+	const auto parts = lines.front().split(' ');
 	if (parts.size() < 2 || parts[0] != u"GET"_q) {
 		socket->write(httpResponse(400, errorBody(u"only GET is supported"_q)));
 		socket->disconnectFromHost();
 		return;
 	}
+
+	auto headers = base::flat_map<QString, QString>();
+	for (auto i = 1; i != lines.size(); ++i) {
+		const auto &line = lines[i];
+		if (line.isEmpty()) {
+			break;
+		}
+		const auto colon = line.indexOf(':');
+		if (colon > 0) {
+			headers.emplace(
+				line.left(colon).trimmed().toLower(),
+				line.mid(colon + 1).trimmed());
+		}
+	}
+	const auto header = [&](const QString &name) {
+		const auto i = headers.find(name);
+		return (i != headers.end()) ? i->second : QString();
+	};
+
 	const auto url = QUrl(parts[1]);
 	const auto path = url.path();
 	const auto query = QUrlQuery(url);
 
+	if (!originAllowed(header(u"origin"_q))) {
+		socket->write(httpResponse(403, errorBody(u"cross-origin requests are refused"_q)));
+		socket->disconnectFromHost();
+		return;
+	}
+	if (!hostAllowed(header(u"host"_q), port())) {
+		socket->write(httpResponse(403, errorBody(u"unexpected Host header"_q)));
+		socket->disconnectFromHost();
+		return;
+	}
+	const auto fetchSite = header(u"sec-fetch-site"_q);
+	if (!fetchSite.isEmpty() && fetchSite != u"none"_q && fetchSite != u"same-origin"_q) {
+		socket->write(httpResponse(403, errorBody(u"cross-site requests are refused"_q)));
+		socket->disconnectFromHost();
+		return;
+	}
+
 	if (path == u"/health"_q) {
 		socket->write(httpResponse(200, routeHealth()));
-	} else if (path == u"/chats"_q) {
+		socket->disconnectFromHost();
+		return;
+	}
+
+	const auto auth = header(u"authorization"_q).isEmpty()
+		? header(u"x-ayu-token"_q)
+		: header(u"authorization"_q);
+	if (!authorized(auth, query.queryItemValue(u"token"_q))) {
+		socket->write(httpResponse(401, errorBody(u"missing or invalid token"_q)));
+		socket->disconnectFromHost();
+		return;
+	}
+
+	if (path == u"/chats"_q) {
 		socket->write(httpResponse(200, routeChats(query)));
 	} else if (path == u"/messages"_q) {
 		socket->write(httpResponse(200, routeMessages(query)));
+	} else if (path == u"/media"_q) {
+		sendMedia(socket, query);
+		return;
 	} else {
 		socket->write(httpResponse(404, errorBody(u"unknown endpoint"_q)));
 	}
+	socket->disconnectFromHost();
+}
+
+void LocalServer::sendMedia(QTcpSocket *socket, const QUrlQuery &query) {
+	const auto fail = [&](int code, const QString &message) {
+		socket->write(httpResponse(code, errorBody(message)));
+		socket->disconnectFromHost();
+	};
+
+	const auto session = activeSession();
+	if (!session) {
+		return fail(400, u"no active session"_q);
+	}
+	const auto dialogId = query.queryItemValue(u"peer"_q).toLongLong();
+	const auto messageId = query.queryItemValue(u"msg_id"_q).toLongLong();
+	if (!dialogId || !messageId) {
+		return fail(400, u"peer and msg_id are required"_q);
+	}
+	const auto peer = resolvePeer(session, dialogId);
+	if (!peer) {
+		return fail(404, u"peer not found locally"_q);
+	}
+
+	const auto found = lookupMedia(session, peer, messageId);
+	if (found.path.isEmpty()) {
+		return fail(404, found.error.isEmpty()
+			? u"media not available"_q
+			: found.error);
+	}
+
+	auto file = QFile(found.path);
+	if (!file.open(QIODevice::ReadOnly)) {
+		return fail(404, u"media file is not readable"_q);
+	}
+	const auto mime = found.mime.isEmpty()
+		? QMimeDatabase().mimeTypeForFile(found.path).name()
+		: found.mime;
+	const auto body = file.readAll();
+	file.close();
+
+	const auto name = QFileInfo(found.path).fileName().toUtf8().toPercentEncoding();
+	auto response = QByteArray("HTTP/1.1 200 OK\r\n")
+		+ "Content-Type: " + safeContentType(mime) + "\r\n"
+		+ "Content-Length: " + QByteArray::number(body.size()) + "\r\n"
+		+ "Content-Disposition: attachment; filename*=UTF-8''" + name + "\r\n"
+		+ "X-Content-Type-Options: nosniff\r\n"
+		"Cache-Control: no-store\r\n"
+		"Connection: close\r\n\r\n";
+	socket->write(response);
+	socket->write(body);
 	socket->disconnectFromHost();
 }
 
