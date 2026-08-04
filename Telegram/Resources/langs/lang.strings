@@ -8659,6 +8659,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_SaveDeletedMessages" = "Save Deleted Messages";
 "ayu_SaveMessagesHistory" = "Save Edits History";
 "ayu_LocalApiEnabled" = "Local HTTP API";
+"ayu_LocalApiCopyToken" = "Copy API token";
+"ayu_LocalApiTokenCopied" = "API token copied";
+"ayu_LocalApiResetToken" = "Reset API token";
+"ayu_LocalApiTokenReset" = "New API token generated and copied. Clients using the old one must be updated.";
 "ayu_LocalApiEnabledDescription" = "Serves chat history, including deleted messages, on 127.0.0.1. Reads local data only and never requests anything from the network.";
 "ayu_MessageSavingSaveMedia" = "Save Attachments";
 "ayu_MessageSavingSaveMediaHint" = "Configure chats & limits";

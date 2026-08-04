@@ -33,6 +33,10 @@
 #include "ui/boxes/single_choice_box.h"
 #include "ui/text/text.h"
 #include "ui/toast/toast.h"
+#include "ayu/api/local_api_auth.h"
+
+#include <QtGui/QClipboard>
+#include <QtGui/QGuiApplication>
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/menu/menu_item_base.h"
@@ -661,6 +665,27 @@ void BuildSpyEssentials(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.title = tr::ayu_LocalApiEnabled(),
 		.getter = &AyuSettings::localApiEnabled,
 		.setter = &AyuSettings::setLocalApiEnabled,
+	});
+	const auto shownWhenApiEnabled = AyuSettings::getInstance()
+		.localApiEnabledValue();
+	ayu.base().addButton({
+		.id = u"ayu/localApiCopyToken"_q,
+		.title = tr::ayu_LocalApiCopyToken(),
+		.label = rpl::single(AyuApi::maskedToken()),
+		.onClick = [] {
+			QGuiApplication::clipboard()->setText(AyuApi::token());
+			Ui::Toast::Show(tr::ayu_LocalApiTokenCopied(tr::now));
+		},
+		.shown = rpl::duplicate(shownWhenApiEnabled),
+	});
+	ayu.base().addButton({
+		.id = u"ayu/localApiResetToken"_q,
+		.title = tr::ayu_LocalApiResetToken(),
+		.onClick = [] {
+			QGuiApplication::clipboard()->setText(AyuApi::resetToken());
+			Ui::Toast::Show(tr::ayu_LocalApiTokenReset(tr::now));
+		},
+		.shown = rpl::duplicate(shownWhenApiEnabled),
 	});
 	ayu.base().addSkip();
 	ayu.base().addDividerText(tr::ayu_LocalApiEnabledDescription());
