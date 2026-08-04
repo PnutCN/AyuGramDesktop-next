@@ -8,6 +8,7 @@
 
 #include "lang_auto.h"
 #include "tray.h"
+#include "ayu/api/local_api_server.h"
 #include "ayu/ayu_ui_settings.h"
 #include "ayu/ayu_worker.h"
 #include "ayu/features/streamer_mode/streamer_mode.h"
@@ -518,6 +519,7 @@ void AyuSettings::validate() {
 	validateRange(_messageBubbleRadius, 0, 16, defaults._messageBubbleRadius);
 	validateRange(_wideMultiplier, 0.5, 4.0, defaults._wideMultiplier);
 	validateRange(_avatarCorners, 0, AyuUiSettings::kMaxAvatarCorners, defaults._avatarCorners);
+	validateRange(_localApiPort, 1024, 65535, defaults._localApiPort);
 
 	const auto embeddedType = _messageShotSettings._embeddedThemeType.current();
 	auto embeddedTypeValid = (embeddedType == -1) || (embeddedType >= 0 && embeddedType <= 3); // from Window::Theme::EmbeddedType::DayBlue to Window::Theme::EmbeddedType::NightGreen
@@ -536,6 +538,26 @@ void AyuSettings::setSaveDeletedMessages(bool val) {
 	if (_saveDeletedMessages.current() == val) return;
 	_saveDeletedMessages = val;
 	save();
+}
+
+void AyuSettings::setSaveDeletedMedia(bool val) {
+	if (_saveDeletedMedia.current() == val) return;
+	_saveDeletedMedia = val;
+	save();
+}
+
+void AyuSettings::setLocalApiEnabled(bool val) {
+	if (_localApiEnabled.current() == val) return;
+	_localApiEnabled = val;
+	save();
+	AyuApi::applySettings();
+}
+
+void AyuSettings::setLocalApiPort(int val) {
+	if (_localApiPort.current() == val) return;
+	_localApiPort = val;
+	save();
+	AyuApi::applySettings();
 }
 
 void AyuSettings::setSaveMessagesHistory(bool val) {
@@ -1079,6 +1101,9 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"ghostModeSettings", ghostAccounts},
 		{"useGlobalGhostMode", s._useGlobalGhostMode.current()},
 		{"saveDeletedMessages", s._saveDeletedMessages.current()},
+		{"saveDeletedMedia", s._saveDeletedMedia.current()},
+		{"localApiEnabled", s._localApiEnabled.current()},
+		{"localApiPort", s._localApiPort.current()},
 		{"saveMessagesHistory", s._saveMessagesHistory.current()},
 		{"saveForBots", s._saveForBots.current()},
 		{"shadowBanIds", s._shadowBanIds},
@@ -1183,6 +1208,9 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 
 	s._useGlobalGhostMode = j.value("useGlobalGhostMode", defaults._useGlobalGhostMode.current());
 	s._saveDeletedMessages = j.value("saveDeletedMessages", defaults._saveDeletedMessages.current());
+	s._saveDeletedMedia = j.value("saveDeletedMedia", defaults._saveDeletedMedia.current());
+	s._localApiEnabled = j.value("localApiEnabled", defaults._localApiEnabled.current());
+	s._localApiPort = j.value("localApiPort", defaults._localApiPort.current());
 	s._saveMessagesHistory = j.value("saveMessagesHistory", defaults._saveMessagesHistory.current());
 	s._saveForBots = j.value("saveForBots", defaults._saveForBots.current());
 	s._shadowBanIds = j.value("shadowBanIds", defaults._shadowBanIds);
