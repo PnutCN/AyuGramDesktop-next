@@ -33,6 +33,11 @@ struct SavedMedia
 // message whose media was never opened keeps its metadata but no file.
 [[nodiscard]] SavedMedia trySaveLocal(not_null<HistoryItem*> item);
 
+// Reports what trySaveLocal would produce without touching the disk. Listing
+// endpoints must use this — probing a few hundred messages with trySaveLocal
+// would copy a few hundred files.
+[[nodiscard]] SavedMedia probeLocal(not_null<HistoryItem*> item);
+
 [[nodiscard]] QString mediaDirectory();
 
 }
