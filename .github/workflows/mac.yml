@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ayu
+      - ayu-next
     tags:
       - 'v*'
     paths-ignore:

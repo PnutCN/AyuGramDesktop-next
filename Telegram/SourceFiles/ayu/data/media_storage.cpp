@@ -50,15 +50,17 @@ namespace {
 	return suffix.isEmpty() ? u"bin"_q : suffix;
 }
 
+// One message maps to one file name, extension aside, so the file can be found
+// again from the message alone without consulting the database.
+[[nodiscard]] QString fileStem(not_null<HistoryItem*> item) {
+	const auto dialogId = getDialogIdFromPeer(item->history()->peer);
+	return u"%1_%2"_q.arg(dialogId).arg(item->id.bare);
+}
+
 [[nodiscard]] QString targetPath(
 		not_null<HistoryItem*> item,
 		const QString &extension) {
-	const auto dialogId = getDialogIdFromPeer(item->history()->peer);
-	const auto name = u"%1_%2.%3"_q
-		.arg(dialogId)
-		.arg(item->id.bare)
-		.arg(extension);
-	return mediaDirectory() + name;
+	return mediaDirectory() + fileStem(item) + u"."_q + extension;
 }
 
 [[nodiscard]] bool writeBytes(const QString &path, const QByteArray &bytes) {
@@ -142,6 +144,35 @@ QString mediaDirectory() {
 	const auto path = cWorkingDir() + u"tdata/ayu_media/"_q;
 	QDir().mkpath(path);
 	return path;
+}
+
+QString resolveLocalPath(const QString &stored) {
+	if (stored.isEmpty() || stored.contains(u".."_q)) {
+		return QString();
+	}
+	const auto absolute = QDir(cWorkingDir()).absoluteFilePath(stored);
+	const auto canonical = QFileInfo(absolute).canonicalFilePath();
+	if (canonical.isEmpty()) {
+		return QString();
+	}
+	const auto root = QFileInfo(mediaDirectory()).canonicalFilePath();
+	if (root.isEmpty() || !canonical.startsWith(root + u"/"_q)) {
+		return QString();
+	}
+	return QFileInfo(canonical).isFile() ? canonical : QString();
+}
+
+void removeLocal(not_null<HistoryItem*> item) {
+	const auto directory = QDir(mediaDirectory());
+	const auto entries = directory.entryInfoList(
+		QStringList{ fileStem(item) + u".*"_q },
+		QDir::Files);
+	for (const auto &entry : entries) {
+		const auto path = entry.absoluteFilePath();
+		if (!QFile::remove(path)) {
+			LOG(("AyuMedia: failed to remove %1").arg(path));
+		}
+	}
 }
 
 SavedMedia probeLocal(not_null<HistoryItem*> item) {
