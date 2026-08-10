@@ -140,6 +140,8 @@ void removeDeletedMessage(not_null<HistoryItem*> item) {
 	const auto peer = item->history()->peer;
 	const ID userId = peer->session().userId().bare & PeerId::kChatTypeMask;
 	AyuDatabase::removeDeletedMessage(userId, getDialogIdFromPeer(peer), item->id.bare);
+	// The row is gone, so nothing would ever reference the file again.
+	AyuMedia::removeLocal(item);
 }
 
 void clearDeletedMessages(not_null<PeerData*> peer, ID topicId) {

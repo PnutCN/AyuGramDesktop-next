@@ -825,24 +825,6 @@ struct MessageQuery
 		: mime.toUtf8();
 }
 
-// The path comes from the database, so it is re-anchored under the media
-// directory and canonicalised before anything is opened.
-[[nodiscard]] QString resolveMediaPath(const QString &stored) {
-	if (stored.isEmpty() || stored.contains(u".."_q)) {
-		return QString();
-	}
-	const auto absolute = QDir(cWorkingDir()).absoluteFilePath(stored);
-	const auto canonical = QFileInfo(absolute).canonicalFilePath();
-	if (canonical.isEmpty()) {
-		return QString();
-	}
-	const auto root = QFileInfo(AyuMedia::mediaDirectory()).canonicalFilePath();
-	if (root.isEmpty() || !canonical.startsWith(root + u"/"_q)) {
-		return QString();
-	}
-	return QFileInfo(canonical).isFile() ? canonical : QString();
-}
-
 struct MediaLookup
 {
 	QString path;
@@ -865,7 +847,7 @@ struct MediaLookup
 		if (message.messageId != messageId) {
 			continue;
 		}
-		result.path = resolveMediaPath(QString::fromStdString(message.mediaPath));
+		result.path = AyuMedia::resolveLocalPath(QString::fromStdString(message.mediaPath));
 		result.mime = QString::fromStdString(message.mimeType);
 		if (result.path.isEmpty()) {
 			result.error = u"media was never cached locally"_q;
@@ -881,7 +863,7 @@ struct MediaLookup
 	// Only here may the file be materialised, and only for a single message.
 	const auto media = AyuMedia::trySaveLocal(item);
 	result.mime = QString::fromStdString(media.mimeType);
-	result.path = resolveMediaPath(QString::fromStdString(media.path));
+	result.path = AyuMedia::resolveLocalPath(QString::fromStdString(media.path));
 	if (result.path.isEmpty()) {
 		result.error = u"media was never cached locally"_q;
 	}

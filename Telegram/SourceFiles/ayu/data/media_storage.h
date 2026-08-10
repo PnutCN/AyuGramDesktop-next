@@ -40,4 +40,14 @@ struct SavedMedia
 
 [[nodiscard]] QString mediaDirectory();
 
+// Turns a stored relative path back into an absolute one, or returns an empty
+// string when the file is gone or the path escapes the media directory. Every
+// consumer of the mediaPath column must go through this — the column is data,
+// and a corrupted row must not be able to reach arbitrary files.
+[[nodiscard]] QString resolveLocalPath(const QString &stored);
+
+// Deletes whatever trySaveLocal wrote for this message. Called when a stored
+// message is dropped, so the media directory does not accumulate orphans.
+void removeLocal(not_null<HistoryItem*> item);
+
 }
