@@ -27,6 +27,11 @@ on:
         type: boolean
         default: false
 
+# 发布 Release 需要写权限。默认的 GITHUB_TOKEN 只有读权限,不加这段
+# 构建会一路成功、最后卡在 Release 步骤 403。
+permissions:
+  contents: write
+
 jobs:
   macos:
     name: macOS (universal)
@@ -110,10 +115,11 @@ jobs:
           mkdir dmgroot
           cp -R AyuGramNext.app dmgroot/
           ln -s /Applications dmgroot/Applications
+          # ULFO(lzfse)比默认的 UDZO(zlib)压得明显更小,官方 AyuGram 也用它。
           hdiutil create \
             -volname "AyuGram Next" \
             -srcfolder dmgroot \
-            -ov -format UDZO \
+            -ov -format ULFO \
             AyuGramNext-macOS.dmg
 
           # 保留符号链接,否则 .app 内的 Frameworks 会损坏。
