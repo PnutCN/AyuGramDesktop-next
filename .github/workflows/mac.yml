@@ -3,7 +3,6 @@ name: macOS
 on:
   push:
     branches:
-      - ayu
       - ayu-next
     tags:
       - 'v*'
@@ -30,7 +29,7 @@ on:
 
 jobs:
   macos:
-    name: macOS (arm64)
+    name: macOS (universal)
     runs-on: macos-latest
 
     env:
@@ -86,7 +85,7 @@ jobs:
           cd $REPO_NAME/Telegram
 
           ./configure.sh \
-          -D CMAKE_OSX_ARCHITECTURES=arm64 \
+          -D CMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
           -D CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
           -D TDESKTOP_API_ID=$API_ID \
           -D TDESKTOP_API_HASH=$API_HASH \
@@ -98,20 +97,43 @@ jobs:
         if: github.event.inputs.only_cache != 'true'
         run: |
           cd $REPO_NAME/out/Release
+
+          # 调试符号占了三分之二体积,发布版不需要。必须在签名之前做,
+          # 否则会让签名失效。
+          strip -S -x AyuGramNext.app/Contents/MacOS/AyuGramNext
+
+          # CI 构建关掉了签名,产物落地后补一个 adhoc 签名,否则下载下来
+          # 会被 Gatekeeper 拦住,得手工 codesign 才能跑。
+          codesign --force --deep --sign - AyuGramNext.app
+
+          # 拖拽安装的 .dmg,和官方 AyuGram 的分发形式一致。
+          mkdir dmgroot
+          cp -R AyuGramNext.app dmgroot/
+          ln -s /Applications dmgroot/Applications
+          hdiutil create \
+            -volname "AyuGram Next" \
+            -srcfolder dmgroot \
+            -ov -format UDZO \
+            AyuGramNext-macOS.dmg
+
           # 保留符号链接,否则 .app 内的 Frameworks 会损坏。
-          zip -r --symlinks AyuGramNext-macOS-arm64.zip AyuGramNext.app
+          zip -r --symlinks AyuGramNext-macOS.zip AyuGramNext.app
 
       - name: Upload artifact.
         if: github.event.inputs.only_cache != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: AyuGramNext-macOS-arm64
-          path: ${{ env.REPO_NAME }}/out/Release/AyuGramNext-macOS-arm64.zip
+          name: AyuGramNext-macOS
+          path: |
+            ${{ env.REPO_NAME }}/out/Release/AyuGramNext-macOS.dmg
+            ${{ env.REPO_NAME }}/out/Release/AyuGramNext-macOS.zip
           retention-days: 30
 
       - name: Release.
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.REPO_NAME }}/out/Release/AyuGramNext-macOS-arm64.zip
+          files: |
+            ${{ env.REPO_NAME }}/out/Release/AyuGramNext-macOS.dmg
+            ${{ env.REPO_NAME }}/out/Release/AyuGramNext-macOS.zip
           generate_release_notes: true
