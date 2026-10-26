@@ -659,6 +659,12 @@ void BuildSpyEssentials(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.getter = &AyuSettings::saveMessagesHistory,
 		.setter = &AyuSettings::setSaveMessagesHistory,
 	});
+	ayu.addSettingToggle({
+		.id = u"ayu/saveDeletedMedia"_q,
+		.title = tr::ayu_MessageSavingSaveMedia(),
+		.getter = &AyuSettings::saveDeletedMedia,
+		.setter = &AyuSettings::setSaveDeletedMedia,
+	});
 
 	ayu.addSectionDivider();
 

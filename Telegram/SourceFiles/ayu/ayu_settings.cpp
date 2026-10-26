@@ -540,6 +540,12 @@ void AyuSettings::setSaveDeletedMessages(bool val) {
 	save();
 }
 
+void AyuSettings::setSaveDeletedMedia(bool val) {
+	if (_saveDeletedMedia.current() == val) return;
+	_saveDeletedMedia = val;
+	save();
+}
+
 void AyuSettings::setSaveMessagesHistory(bool val) {
 	if (_saveMessagesHistory.current() == val) return;
 	_saveMessagesHistory = val;
@@ -1101,6 +1107,7 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"ghostModeSettings", ghostAccounts},
 		{"useGlobalGhostMode", s._useGlobalGhostMode.current()},
 		{"saveDeletedMessages", s._saveDeletedMessages.current()},
+		{"saveDeletedMedia", s._saveDeletedMedia.current()},
 		{"saveMessagesHistory", s._saveMessagesHistory.current()},
 		{"saveForBots", s._saveForBots.current()},
 		{"mcpEnabled", s._mcpEnabled.current()},
@@ -1208,6 +1215,7 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 
 	s._useGlobalGhostMode = j.value("useGlobalGhostMode", defaults._useGlobalGhostMode.current());
 	s._saveDeletedMessages = j.value("saveDeletedMessages", defaults._saveDeletedMessages.current());
+	s._saveDeletedMedia = j.value("saveDeletedMedia", defaults._saveDeletedMedia.current());
 	s._saveMessagesHistory = j.value("saveMessagesHistory", defaults._saveMessagesHistory.current());
 	s._saveForBots = j.value("saveForBots", defaults._saveForBots.current());
 	s._mcpEnabled = j.value("mcpEnabled", defaults._mcpEnabled.current());

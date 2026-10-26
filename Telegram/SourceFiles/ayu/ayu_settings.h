@@ -268,6 +268,7 @@ public:
 	void validate();
 
 	[[nodiscard]] bool saveDeletedMessages() const { return _saveDeletedMessages.current(); }
+	[[nodiscard]] bool saveDeletedMedia() const { return _saveDeletedMedia.current(); }
 	[[nodiscard]] bool saveMessagesHistory() const { return _saveMessagesHistory.current(); }
 	[[nodiscard]] bool saveForBots() const { return _saveForBots.current(); }
 	[[nodiscard]] bool mcpEnabled() const { return _mcpEnabled.current(); }
@@ -358,6 +359,7 @@ public:
 	[[nodiscard]] bool streamerMode() const { return _streamerMode.current(); }
 
 	void setSaveDeletedMessages(bool val);
+	void setSaveDeletedMedia(bool val);
 	void setSaveMessagesHistory(bool val);
 	void setSaveForBots(bool val);
 	void setMcpEnabled(bool val);
@@ -633,6 +635,7 @@ private:
 	[[nodiscard]] uint64 getOverriddenGhostUserId(uint64 userId) const { return _useGlobalGhostMode.current() ? 0 : userId; }
 
 	rpl::variable<bool> _saveDeletedMessages = true;
+	rpl::variable<bool> _saveDeletedMedia = false;
 	rpl::variable<bool> _saveMessagesHistory = true;
 	rpl::variable<bool> _saveForBots = false;
 	rpl::variable<bool> _mcpEnabled = false;
