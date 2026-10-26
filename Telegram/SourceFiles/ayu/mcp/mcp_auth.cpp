@@ -77,6 +77,11 @@ QString token() {
 	return GlobalToken;
 }
 
+void resetToken() {
+	GlobalToken = generate();
+	store(GlobalToken);
+}
+
 bool authorized(const QByteArray &authorizationHeader) {
 	const auto expected = token().toUtf8();
 	const auto prefix = QByteArray("bearer ");

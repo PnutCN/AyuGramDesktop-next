@@ -9,6 +9,7 @@
 namespace AyuMcp {
 
 [[nodiscard]] QString token();
+void resetToken();
 [[nodiscard]] bool authorized(const QByteArray &authorizationHeader);
 [[nodiscard]] bool hostAllowed(const QByteArray &hostHeader, quint16 port);
 
