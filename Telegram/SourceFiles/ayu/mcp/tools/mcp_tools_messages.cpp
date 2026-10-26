@@ -1,0 +1,157 @@
+// This is the source code of AyuGram for Desktop.
+//
+// We do not and cannot prevent the use of our code,
+// but be respectful and credit the original author.
+//
+// Copyright @Radolyn, 2026
+#include "ayu/mcp/tools/mcp_tools.h"
+
+#include "ayu/mcp/mcp_context.h"
+#include "ayu/mcp/mcp_registry.h"
+#include "ayu/mcp/mcp_transcript.h"
+#include "data/data_peer.h"
+#include "data/data_session.h"
+#include "history/history.h"
+#include "history/view/history_view_element.h"
+#include "main/main_session.h"
+
+
+namespace AyuMcp {
+namespace {
+
+constexpr auto kDefaultLimit = 50;
+
+[[nodiscard]] std::vector<MessageEntry> loadedEntries(
+		not_null<PeerData*> peer,
+		const MessageFilter &filter) {
+	auto result = std::vector<MessageEntry>();
+	const auto history = peer->owner().historyLoaded(peer);
+	if (!history) {
+		return result;
+	}
+	for (const auto &block : history->blocks) {
+		for (const auto &view : block->messages) {
+			auto entry = entryFromItem(view->data());
+			if (filter.matches(entry)) {
+				result.push_back(std::move(entry));
+			}
+		}
+	}
+	return result;
+}
+
+void respond(
+		not_null<PeerData*> peer,
+		int64 chatId,
+		int limit,
+		std::vector<MessageEntry> matched,
+		const Fn<void(ToolResult)> &done) {
+	const auto page = newest(std::move(matched), limit);
+	const auto &entries = page.entries;
+	auto text = u"%1 (%2). %3\n\n"_q.arg(
+		peer->name(),
+		QString::number(chatId),
+		timezoneNote());
+	auto structured = QJsonObject{
+		{
+			u"chat"_q,
+			QJsonObject{
+				{ u"id"_q, chatId },
+				{ u"title"_q, peer->name() },
+			},
+		},
+		{ u"messages"_q, entriesJson(entries) },
+	};
+	if (entries.empty()) {
+		text += u"No loaded messages matched. Opening the chat in "
+			"AyuGram loads more of its history."_q;
+	} else {
+		text += renderTranscript(entries);
+	}
+	if (page.more) {
+		const auto next = entries.front().id;
+		text += u"\n\nMore messages match, call again with before_id=%1."_q.arg(
+			next);
+		structured.insert(u"next_before_id"_q, next);
+	}
+	done({ .text = text, .structured = structured });
+}
+
+void getMessages(
+		const CallContext &context,
+		const QJsonObject &arguments,
+		Fn<void(ToolResult)> done) {
+	const auto chatId = arguments.value(u"chat_id"_q).toInteger();
+	const auto peer = resolveChat(context.session, chatId);
+	if (!peer) {
+		done(toolError(u"Chat %1 is not loaded yet, list_chats shows "
+			"the available ones."_q.arg(chatId)));
+		return;
+	}
+	auto error = QString();
+	const auto filter = parseFilter(arguments, &error);
+	if (!filter) {
+		done(toolError(error));
+		return;
+	}
+	const auto limit = arguments.value(u"limit"_q).toInt(kDefaultLimit);
+	respond(peer, chatId, limit, loadedEntries(peer, *filter), done);
+}
+
+} // namespace
+
+void registerMessageTools() {
+	registerTool({
+		.name = u"get_messages"_q,
+		.title = u"Get messages"_q,
+		.description = u"Reads messages of a chat that this client has "
+			"already loaded, oldest first. Chat ids come from list_chats. "
+			"All filters combine."_q,
+		.inputSchema = parseSchema(R"({
+			"type": "object",
+			"properties": {
+				"chat_id": {
+					"type": "integer",
+					"description": "Chat id from list_chats."
+				},
+				"limit": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 500,
+					"default": 50
+				},
+				"before_id": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Only messages with a smaller id, for paging back."
+				},
+				"after_id": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Only messages with a larger id."
+				},
+				"since": {
+					"type": "string",
+					"description": "ISO 8601 date or date-time, local time unless an offset is given."
+				},
+				"until": {
+					"type": "string",
+					"description": "ISO 8601 date or date-time, local time unless an offset is given."
+				},
+				"query": {
+					"type": "string",
+					"description": "Case-insensitive text the message must contain."
+				},
+				"from_id": {
+					"type": "integer",
+					"description": "Only messages from this sender id."
+				}
+			},
+			"required": ["chat_id"],
+			"additionalProperties": false
+		})"),
+		.handler = getMessages,
+	});
+}
+
+} // namespace AyuMcp

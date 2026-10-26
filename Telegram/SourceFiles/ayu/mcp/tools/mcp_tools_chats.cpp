@@ -6,6 +6,7 @@
 // Copyright @Radolyn, 2026
 #include "ayu/mcp/tools/mcp_tools.h"
 
+#include "ayu/mcp/mcp_context.h"
 #include "ayu/mcp/mcp_registry.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "data/data_folder.h"
@@ -20,19 +21,6 @@ namespace AyuMcp {
 namespace {
 
 constexpr auto kDefaultLimit = 100;
-
-[[nodiscard]] QString peerType(not_null<PeerData*> peer) {
-	if (peer->isBroadcast()) {
-		return u"channel"_q;
-	} else if (peer->isChannel()) {
-		return u"supergroup"_q;
-	} else if (peer->isChat()) {
-		return u"group"_q;
-	} else if (peer->isBot()) {
-		return u"bot"_q;
-	}
-	return u"user"_q;
-}
 
 [[nodiscard]] bool matches(not_null<PeerData*> peer, const QString &query) {
 	return query.isEmpty()
@@ -58,7 +46,7 @@ void appendChats(
 		auto chat = QJsonObject{
 			{ u"id"_q, qint64(getDialogIdFromPeer(peer)) },
 			{ u"title"_q, peer->name() },
-			{ u"type"_q, peerType(peer) },
+			{ u"type"_q, peerTypeName(peer) },
 			{ u"unread"_q, history->unreadCount() },
 			{ u"archived"_q, archived },
 		};
