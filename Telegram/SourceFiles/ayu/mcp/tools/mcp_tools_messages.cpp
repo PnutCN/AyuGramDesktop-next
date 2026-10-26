@@ -9,6 +9,8 @@
 #include "ayu/mcp/mcp_context.h"
 #include "ayu/mcp/mcp_registry.h"
 #include "ayu/mcp/mcp_transcript.h"
+#include "ayu/data/ayu_database.h"
+#include "ayu/utils/telegram_helpers.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
 #include "history/history.h"
@@ -20,6 +22,8 @@ namespace AyuMcp {
 namespace {
 
 constexpr auto kDefaultLimit = 50;
+constexpr auto kScanBatch = 500;
+constexpr auto kMaxScanned = 20000;
 
 [[nodiscard]] std::vector<MessageEntry> loadedEntries(
 		not_null<PeerData*> peer,
@@ -36,6 +40,68 @@ constexpr auto kDefaultLimit = 50;
 				result.push_back(std::move(entry));
 			}
 		}
+	}
+	return result;
+}
+
+[[nodiscard]] PeerData *storedSender(
+		not_null<Main::Session*> session,
+		ID bareId) {
+	auto &owner = session->data();
+	if (const auto user = owner.peerLoaded(peerFromUser(BareId(bareId)))) {
+		return user;
+	}
+	return owner.peerLoaded(peerFromChannel(BareId(bareId)));
+}
+
+[[nodiscard]] MessageEntry entryFromStored(
+		not_null<Main::Session*> session,
+		const DeletedMessage &message) {
+	const auto sender = storedSender(session, message.fromId);
+	return {
+		.id = message.messageId,
+		.date = message.date,
+		.fromId = sender ? getDialogIdFromPeer(sender) : message.fromId,
+		.fromName = sender ? sender->name() : QString(),
+		.text = QString::fromStdString(message.text),
+		.deleted = true,
+	};
+}
+
+// WHY: the database bounds by id only, so the time range is applied here,
+// walking batches back until the limit or the start of the range is hit.
+[[nodiscard]] std::vector<DeletedMessage> scanDeleted(
+		ID userId,
+		ID dialogId,
+		const MessageFilter &filter,
+		int limit) {
+	auto result = std::vector<DeletedMessage>();
+	const auto query = filter.query.toStdString();
+	const auto fromId = std::abs(filter.fromId);
+	auto cursor = filter.beforeId;
+	auto scanned = 0;
+	while (int(result.size()) <= limit && scanned < kMaxScanned) {
+		const auto rows = AyuDatabase::getDeletedMessages(
+			userId,
+			dialogId,
+			0,
+			filter.afterId,
+			cursor,
+			kScanBatch,
+			query);
+		for (const auto &row : rows) {
+			if ((!filter.since || row.date >= filter.since)
+				&& (!filter.until || row.date <= filter.until)
+				&& (!fromId || row.fromId == fromId)) {
+				result.push_back(row);
+			}
+		}
+		scanned += int(rows.size());
+		if (int(rows.size()) < kScanBatch
+			|| (filter.since && rows.back().date < filter.since)) {
+			break;
+		}
+		cursor = rows.back().messageId;
 	}
 	return result;
 }
@@ -63,8 +129,8 @@ void respond(
 		{ u"messages"_q, entriesJson(entries) },
 	};
 	if (entries.empty()) {
-		text += u"No loaded messages matched. Opening the chat in "
-			"AyuGram loads more of its history."_q;
+		text += u"No messages matched. Opening the chat in AyuGram "
+			"loads more of its history."_q;
 	} else {
 		text += renderTranscript(entries);
 	}
@@ -95,7 +161,34 @@ void getMessages(
 		return;
 	}
 	const auto limit = arguments.value(u"limit"_q).toInt(kDefaultLimit);
-	respond(peer, chatId, limit, loadedEntries(peer, *filter), done);
+	const auto include = arguments.value(u"include"_q).toString();
+	auto loaded = (include == u"deleted_only"_q)
+		? std::vector<MessageEntry>()
+		: loadedEntries(peer, *filter);
+	if (include == u"exclude_deleted"_q) {
+		loaded.erase(
+			ranges::remove(loaded, true, &MessageEntry::deleted),
+			end(loaded));
+		respond(peer, chatId, limit, std::move(loaded), done);
+		return;
+	}
+	const auto session = context.session;
+	const auto userId = ID(session->userId().bare & PeerId::kChatTypeMask);
+	const auto dialogId = getDialogIdFromPeer(peer);
+	const auto alive = context.alive;
+	crl::async([=, filter = *filter] {
+		auto rows = scanDeleted(userId, dialogId, filter, limit);
+		crl::on_main(session, [=, rows = std::move(rows)]() mutable {
+			if (!alive()) {
+				return;
+			}
+			auto matched = loaded;
+			for (const auto &row : rows) {
+				matched.push_back(entryFromStored(session, row));
+			}
+			respond(peer, chatId, limit, std::move(matched), done);
+		});
+	});
 }
 
 } // namespace
@@ -105,8 +198,9 @@ void registerMessageTools() {
 		.name = u"get_messages"_q,
 		.title = u"Get messages"_q,
 		.description = u"Reads messages of a chat that this client has "
-			"already loaded, oldest first. Chat ids come from list_chats. "
-			"All filters combine."_q,
+			"already loaded, plus messages AyuGram saved after they were "
+			"deleted, oldest first. Chat ids come from list_chats. All "
+			"filters combine."_q,
 		.inputSchema = parseSchema(R"({
 			"type": "object",
 			"properties": {
@@ -145,6 +239,12 @@ void registerMessageTools() {
 				"from_id": {
 					"type": "integer",
 					"description": "Only messages from this sender id."
+				},
+				"include": {
+					"type": "string",
+					"enum": ["all", "deleted_only", "exclude_deleted"],
+					"default": "all",
+					"description": "Deleted messages keep no reply or media details."
 				}
 			},
 			"required": ["chat_id"],
