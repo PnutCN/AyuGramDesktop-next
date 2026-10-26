@@ -8821,6 +8821,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_McpConfigCopied" = "Client config copied. It contains your access token, keep it private.";
 "ayu_McpDescription" = "Lets AI assistants such as Claude Code or Cursor read your chats over the Model Context Protocol. Listens on 127.0.0.1 only, requires the access token from the client config and is read-only.";
 "ayu_McpPortTaken" = "Could not start the MCP server: port {port} is in use.";
+"ayu_McpPort" = "Port";
+"ayu_McpPortAbout" = "The MCP server listens on this port of 127.0.0.1. Use a value from 1024 to 65535 and update your client config afterwards.";
+"ayu_McpResetToken" = "Reset access token";
+"ayu_McpTokenReset" = "Access token reset. Copy the client config again for your MCP clients.";
 "ayu_MessageSavingSaveMedia" = "Save Attachments";
 "ayu_MessageSavingSaveMediaHint" = "Configure chats & limits";
 "ayu_MessageSavingSaveMediaInPrivateChats" = "Private Chats";

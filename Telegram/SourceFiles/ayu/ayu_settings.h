@@ -271,6 +271,7 @@ public:
 	[[nodiscard]] bool saveMessagesHistory() const { return _saveMessagesHistory.current(); }
 	[[nodiscard]] bool saveForBots() const { return _saveForBots.current(); }
 	[[nodiscard]] bool mcpEnabled() const { return _mcpEnabled.current(); }
+	[[nodiscard]] int mcpPort() const { return _mcpPort.current(); }
 	[[nodiscard]] bool filtersEnabled() const { return _filtersEnabled.current(); }
 	[[nodiscard]] bool filtersEnabledInChats() const { return _filtersEnabledInChats.current(); }
 	[[nodiscard]] bool hideFromBlocked() const { return _hideFromBlocked.current(); }
@@ -359,6 +360,7 @@ public:
 	void setSaveMessagesHistory(bool val);
 	void setSaveForBots(bool val);
 	void setMcpEnabled(bool val);
+	void setMcpPort(int val);
 	void setFiltersEnabled(bool val);
 	void setFiltersEnabledInChats(bool val);
 	void setHideFromBlocked(bool val);
@@ -452,6 +454,7 @@ public:
 	[[nodiscard]] rpl::producer<bool> saveForBotsValue() const { return _saveForBots.value(); }
 	[[nodiscard]] rpl::producer<bool> saveForBotsChanges() const { return _saveForBots.changes(); }
 	[[nodiscard]] rpl::producer<bool> mcpEnabledValue() const { return _mcpEnabled.value(); }
+	[[nodiscard]] rpl::producer<int> mcpPortValue() const { return _mcpPort.value(); }
 	[[nodiscard]] rpl::producer<bool> filtersEnabledValue() const { return _filtersEnabled.value(); }
 	[[nodiscard]] rpl::producer<bool> filtersEnabledChanges() const { return _filtersEnabled.changes(); }
 	[[nodiscard]] rpl::producer<bool> filtersEnabledInChatsValue() const { return _filtersEnabledInChats.value(); }
@@ -631,6 +634,7 @@ private:
 	rpl::variable<bool> _saveMessagesHistory = true;
 	rpl::variable<bool> _saveForBots = false;
 	rpl::variable<bool> _mcpEnabled = false;
+	rpl::variable<int> _mcpPort = 9527;
 	std::unordered_set<int64> _shadowBanIds;
 	rpl::variable<bool> _filtersEnabled = false;
 	rpl::variable<bool> _filtersEnabledInChats = false;

@@ -35,7 +35,6 @@ struct HttpRequest {
 
 namespace {
 
-constexpr auto kPort = quint16(9527);
 constexpr auto kMaxHeaderSize = 16 * 1024;
 constexpr auto kMaxBodySize = 1024 * 1024;
 constexpr auto kReadTimeoutMs = 10000;
@@ -157,6 +156,10 @@ bool Server::start(quint16 port) {
 	return _server.listen(QHostAddress::LocalHost, port);
 }
 
+quint16 Server::port() const {
+	return _server.serverPort();
+}
+
 void Server::accept() {
 	while (const auto socket = _server.nextPendingConnection()) {
 		const auto incoming = std::make_shared<Incoming>();
@@ -219,30 +222,37 @@ void Server::handle(
 }
 
 void applySettings(bool interactive) {
-	if (!AyuSettings::getInstance().mcpEnabled()) {
+	const auto &settings = AyuSettings::getInstance();
+	const auto port = quint16(settings.mcpPort());
+	if (!settings.mcpEnabled()) {
 		GlobalServer = nullptr;
 		return;
-	} else if (GlobalServer) {
+	} else if (GlobalServer && GlobalServer->port() == port) {
 		return;
 	}
+	GlobalServer = nullptr;
 	auto server = std::make_unique<Server>();
-	if (server->start(kPort)) {
+	if (server->start(port)) {
 		GlobalServer = std::move(server);
 		return;
 	}
-	LOG(("AyuGram MCP: could not listen on 127.0.0.1:%1.").arg(kPort));
+	LOG(("AyuGram MCP: could not listen on 127.0.0.1:%1.").arg(port));
 	if (interactive) {
 		Ui::Toast::Show(tr::ayu_McpPortTaken(
 			tr::now,
 			lt_port,
-			QString::number(kPort)));
+			QString::number(port)));
 	}
 }
 
 QString clientConfig() {
 	const auto server = QJsonObject{
 		{ u"type"_q, u"http"_q },
-		{ u"url"_q, u"http://127.0.0.1:%1/mcp"_q.arg(kPort) },
+		{
+			u"url"_q,
+			u"http://127.0.0.1:%1/mcp"_q.arg(
+				AyuSettings::getInstance().mcpPort()),
+		},
 		{
 			u"headers"_q,
 			QJsonObject{ { u"Authorization"_q, u"Bearer "_q + token() } },

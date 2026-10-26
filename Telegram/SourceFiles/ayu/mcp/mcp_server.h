@@ -12,6 +12,9 @@ class QTcpSocket;
 
 namespace AyuMcp {
 
+inline constexpr auto kMinPort = 1024;
+inline constexpr auto kMaxPort = 65535;
+
 struct HttpRequest;
 
 class Server final : public QObject {
@@ -19,6 +22,7 @@ public:
 	Server();
 
 	[[nodiscard]] bool start(quint16 port);
+	[[nodiscard]] quint16 port() const;
 
 private:
 	void accept();

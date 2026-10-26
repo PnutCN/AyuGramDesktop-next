@@ -519,6 +519,7 @@ void AyuSettings::validate() {
 	validateRange(_messageBubbleRadius, 0, 16, defaults._messageBubbleRadius);
 	validateRange(_wideMultiplier, 0.5, 4.0, defaults._wideMultiplier);
 	validateRange(_avatarCorners, 0, AyuUiSettings::kMaxAvatarCorners, defaults._avatarCorners);
+	validateRange(_mcpPort, AyuMcp::kMinPort, AyuMcp::kMaxPort, defaults._mcpPort);
 
 	const auto embeddedType = _messageShotSettings._embeddedThemeType.current();
 	auto embeddedTypeValid = (embeddedType == -1) || (embeddedType >= 0 && embeddedType <= 3); // from Window::Theme::EmbeddedType::DayBlue to Window::Theme::EmbeddedType::NightGreen
@@ -554,6 +555,13 @@ void AyuSettings::setSaveForBots(bool val) {
 void AyuSettings::setMcpEnabled(bool val) {
 	if (_mcpEnabled.current() == val) return;
 	_mcpEnabled = val;
+	save();
+	AyuMcp::applySettings(true);
+}
+
+void AyuSettings::setMcpPort(int val) {
+	if (_mcpPort.current() == val) return;
+	_mcpPort = val;
 	save();
 	AyuMcp::applySettings(true);
 }
@@ -1090,6 +1098,7 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"saveMessagesHistory", s._saveMessagesHistory.current()},
 		{"saveForBots", s._saveForBots.current()},
 		{"mcpEnabled", s._mcpEnabled.current()},
+		{"mcpPort", s._mcpPort.current()},
 		{"shadowBanIds", s._shadowBanIds},
 		{"filtersEnabled", s._filtersEnabled.current()},
 		{"filtersEnabledInChats", s._filtersEnabledInChats.current()},
@@ -1195,6 +1204,7 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._saveMessagesHistory = j.value("saveMessagesHistory", defaults._saveMessagesHistory.current());
 	s._saveForBots = j.value("saveForBots", defaults._saveForBots.current());
 	s._mcpEnabled = j.value("mcpEnabled", defaults._mcpEnabled.current());
+	s._mcpPort = j.value("mcpPort", defaults._mcpPort.current());
 	s._shadowBanIds = j.value("shadowBanIds", defaults._shadowBanIds);
 	s._filtersEnabled = j.value("filtersEnabled", defaults._filtersEnabled.current());
 	s._filtersEnabledInChats = j.value("filtersEnabledInChats", defaults._filtersEnabledInChats.current());
