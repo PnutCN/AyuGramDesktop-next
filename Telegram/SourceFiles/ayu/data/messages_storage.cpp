@@ -7,6 +7,7 @@
 #include "ayu/data/messages_storage.h"
 
 #include "ayu/data/ayu_database.h"
+#include "ayu/data/media_storage.h"
 #include "ayu/utils/ayu_mapper.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "base/unixtime.h"
@@ -115,7 +116,12 @@ void addDeletedMessage(not_null<HistoryItem*> item) {
 	DeletedMessage message;
 	map(item, message);
 
-	if (message.text.empty()) {
+	const auto media = AyuMedia::trySaveLocal(item);
+	if (media.documentType != AyuMedia::MediaNone) {
+		message.mediaPath = media.path;
+		message.documentType = media.documentType;
+		message.mimeType = media.mimeType;
+	} else if (message.text.empty()) {
 		return;
 	}
 
@@ -138,6 +144,7 @@ void removeDeletedMessage(not_null<HistoryItem*> item) {
 	const auto peer = item->history()->peer;
 	const ID userId = peer->session().userId().bare & PeerId::kChatTypeMask;
 	AyuDatabase::removeDeletedMessage(userId, getDialogIdFromPeer(peer), item->id.bare);
+	AyuMedia::removeLocal(item);
 }
 
 void clearDeletedMessages(not_null<PeerData*> peer, ID topicId) {
