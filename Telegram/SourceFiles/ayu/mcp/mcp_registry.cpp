@@ -6,6 +6,7 @@
 // Copyright @Radolyn, 2026
 #include "ayu/mcp/mcp_registry.h"
 
+#include "ayu/ayu_settings.h"
 #include "core/application.h"
 #include "main/main_account.h"
 #include "main/main_domain.h"
@@ -129,7 +130,12 @@ void registerTool(ToolSpec spec) {
 }
 
 bool tierEnabled(Tier tier) {
-	return (tier == Tier::Read);
+	switch (tier) {
+	case Tier::Read: return true;
+	case Tier::Network: return AyuSettings::getInstance().mcpAllowNetwork();
+	case Tier::Write: return false;
+	}
+	Unexpected("Tier in AyuMcp::tierEnabled.");
 }
 
 QJsonArray listTools() {

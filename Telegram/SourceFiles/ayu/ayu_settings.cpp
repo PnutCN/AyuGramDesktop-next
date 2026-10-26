@@ -558,6 +558,12 @@ void AyuSettings::setMcpEnabled(bool val) {
 	AyuMcp::applySettings(true);
 }
 
+void AyuSettings::setMcpAllowNetwork(bool val) {
+	if (_mcpAllowNetwork.current() == val) return;
+	_mcpAllowNetwork = val;
+	save();
+}
+
 void AyuSettings::setFiltersEnabled(bool val) {
 	if (_filtersEnabled.current() == val) return;
 	_filtersEnabled = val;
@@ -1090,6 +1096,7 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"saveMessagesHistory", s._saveMessagesHistory.current()},
 		{"saveForBots", s._saveForBots.current()},
 		{"mcpEnabled", s._mcpEnabled.current()},
+		{"mcpAllowNetwork", s._mcpAllowNetwork.current()},
 		{"shadowBanIds", s._shadowBanIds},
 		{"filtersEnabled", s._filtersEnabled.current()},
 		{"filtersEnabledInChats", s._filtersEnabledInChats.current()},
@@ -1195,6 +1202,7 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._saveMessagesHistory = j.value("saveMessagesHistory", defaults._saveMessagesHistory.current());
 	s._saveForBots = j.value("saveForBots", defaults._saveForBots.current());
 	s._mcpEnabled = j.value("mcpEnabled", defaults._mcpEnabled.current());
+	s._mcpAllowNetwork = j.value("mcpAllowNetwork", defaults._mcpAllowNetwork.current());
 	s._shadowBanIds = j.value("shadowBanIds", defaults._shadowBanIds);
 	s._filtersEnabled = j.value("filtersEnabled", defaults._filtersEnabled.current());
 	s._filtersEnabledInChats = j.value("filtersEnabledInChats", defaults._filtersEnabledInChats.current());

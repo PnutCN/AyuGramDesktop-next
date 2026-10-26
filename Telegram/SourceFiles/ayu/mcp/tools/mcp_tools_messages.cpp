@@ -8,6 +8,7 @@
 
 #include "ayu/mcp/mcp_context.h"
 #include "ayu/mcp/mcp_registry.h"
+#include "ayu/mcp/mcp_remote.h"
 #include "ayu/mcp/mcp_transcript.h"
 #include "ayu/data/ayu_database.h"
 #include "ayu/utils/telegram_helpers.h"
@@ -106,18 +107,46 @@ constexpr auto kMaxScanned = 20000;
 	return result;
 }
 
+void addDeleted(
+		const CallContext &context,
+		not_null<PeerData*> peer,
+		const MessageFilter &filter,
+		int limit,
+		std::vector<MessageEntry> entries,
+		Fn<void(std::vector<MessageEntry>)> done) {
+	const auto session = context.session;
+	const auto userId = ID(session->userId().bare & PeerId::kChatTypeMask);
+	const auto dialogId = getDialogIdFromPeer(peer);
+	const auto alive = context.alive;
+	crl::async([=] {
+		auto rows = scanDeleted(userId, dialogId, filter, limit);
+		crl::on_main(session, [=, rows = std::move(rows)] {
+			if (!alive()) {
+				return;
+			}
+			auto all = entries;
+			for (const auto &row : rows) {
+				all.push_back(entryFromStored(session, row));
+			}
+			done(std::move(all));
+		});
+	});
+}
+
 void respond(
 		not_null<PeerData*> peer,
 		int64 chatId,
 		int limit,
 		std::vector<MessageEntry> matched,
+		const QString &note,
 		const Fn<void(ToolResult)> &done) {
 	const auto page = newest(std::move(matched), limit);
 	const auto &entries = page.entries;
-	auto text = u"%1 (%2). %3\n\n"_q.arg(
+	auto text = u"%1 (%2). %3%4\n\n"_q.arg(
 		peer->name(),
 		QString::number(chatId),
-		timezoneNote());
+		timezoneNote(),
+		note.isEmpty() ? QString() : (' ' + note));
 	auto structured = QJsonObject{
 		{
 			u"chat"_q,
@@ -162,32 +191,37 @@ void getMessages(
 	}
 	const auto limit = arguments.value(u"limit"_q).toInt(kDefaultLimit);
 	const auto include = arguments.value(u"include"_q).toString();
-	auto loaded = (include == u"deleted_only"_q)
+	const auto deletedOnly = (include == u"deleted_only"_q);
+	const auto withDeleted = (include != u"exclude_deleted"_q);
+	auto loaded = deletedOnly
 		? std::vector<MessageEntry>()
 		: loadedEntries(peer, *filter);
-	if (include == u"exclude_deleted"_q) {
-		loaded.erase(
-			ranges::remove(loaded, true, &MessageEntry::deleted),
-			end(loaded));
-		respond(peer, chatId, limit, std::move(loaded), done);
+	const auto finish = [=](std::vector<MessageEntry> entries, QString note) {
+		if (!withDeleted) {
+			entries.erase(
+				ranges::remove(entries, true, &MessageEntry::deleted),
+				end(entries));
+			respond(peer, chatId, limit, std::move(entries), note, done);
+			return;
+		}
+		addDeleted(context, peer, *filter, limit, std::move(entries), [=](
+				std::vector<MessageEntry> all) {
+			respond(peer, chatId, limit, std::move(all), note, done);
+		});
+	};
+	if (deletedOnly || !tierEnabled(Tier::Network)) {
+		finish(std::move(loaded), QString());
 		return;
 	}
-	const auto session = context.session;
-	const auto userId = ID(session->userId().bare & PeerId::kChatTypeMask);
-	const auto dialogId = getDialogIdFromPeer(peer);
-	const auto alive = context.alive;
-	crl::async([=, filter = *filter] {
-		auto rows = scanDeleted(userId, dialogId, filter, limit);
-		crl::on_main(session, [=, rows = std::move(rows)]() mutable {
-			if (!alive()) {
-				return;
-			}
-			auto matched = loaded;
-			for (const auto &row : rows) {
-				matched.push_back(entryFromStored(session, row));
-			}
-			respond(peer, chatId, limit, std::move(matched), done);
-		});
+	fetchRemoteHistory(peer, *filter, limit, context.alive, [=](
+			std::vector<MessageEntry> remote,
+			QString error) {
+		auto entries = loaded;
+		entries.insert(end(entries), begin(remote), end(remote));
+		finish(std::move(entries), error.isEmpty()
+			? u"Includes history fetched from Telegram."_q
+			: u"Fetching from Telegram failed (%1), showing local "
+				"messages only."_q.arg(error));
 	});
 }
 
@@ -199,8 +233,10 @@ void registerMessageTools() {
 		.title = u"Get messages"_q,
 		.description = u"Reads messages of a chat that this client has "
 			"already loaded, plus messages AyuGram saved after they were "
-			"deleted, oldest first. Chat ids come from list_chats. All "
-			"filters combine."_q,
+			"deleted, oldest first. When the user allowed it in AyuGram "
+			"settings, missing history is fetched from Telegram as well, "
+			"without marking anything as read. Chat ids come from "
+			"list_chats. All filters combine."_q,
 		.inputSchema = parseSchema(R"({
 			"type": "object",
 			"properties": {

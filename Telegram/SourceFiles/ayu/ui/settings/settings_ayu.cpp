@@ -691,6 +691,13 @@ void BuildMcp(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.getter = &AyuSettings::mcpEnabled,
 		.setter = &AyuSettings::setMcpEnabled,
 	});
+	ayu.addSettingToggle({
+		.id = u"ayu/mcpAllowNetwork"_q,
+		.title = tr::ayu_McpAllowNetwork(),
+		.getter = &AyuSettings::mcpAllowNetwork,
+		.setter = &AyuSettings::setMcpAllowNetwork,
+		.shown = AyuSettings::getInstance().mcpEnabledValue(),
+	});
 	builder.addButton({
 		.id = u"ayu/mcpCopyConfig"_q,
 		.title = tr::ayu_McpCopyConfig(),

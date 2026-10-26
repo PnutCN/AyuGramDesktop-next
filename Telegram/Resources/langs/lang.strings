@@ -8819,8 +8819,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_McpEnabled" = "Enable MCP server";
 "ayu_McpCopyConfig" = "Copy client config";
 "ayu_McpConfigCopied" = "Client config copied. It contains your access token, keep it private.";
-"ayu_McpDescription" = "Lets AI assistants such as Claude Code or Cursor read your chats over the Model Context Protocol. Listens on 127.0.0.1 only, requires the access token from the client config and is read-only.";
+"ayu_McpDescription" = "Lets AI assistants such as Claude Code or Cursor read your chats over the Model Context Protocol. Listens on 127.0.0.1 only, requires the access token from the client config and is read-only. Fetching history from Telegram is off unless allowed above.";
 "ayu_McpPortTaken" = "Could not start the MCP server: port {port} is in use.";
+"ayu_McpAllowNetwork" = "Allow fetching history from Telegram";
 "ayu_MessageSavingSaveMedia" = "Save Attachments";
 "ayu_MessageSavingSaveMediaHint" = "Configure chats & limits";
 "ayu_MessageSavingSaveMediaInPrivateChats" = "Private Chats";

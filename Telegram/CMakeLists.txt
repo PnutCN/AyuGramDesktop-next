@@ -260,6 +260,8 @@ set(ayugram_files
         ayu/mcp/mcp_protocol.h
         ayu/mcp/mcp_registry.cpp
         ayu/mcp/mcp_registry.h
+        ayu/mcp/mcp_remote.cpp
+        ayu/mcp/mcp_remote.h
         ayu/mcp/mcp_server.cpp
         ayu/mcp/mcp_server.h
         ayu/mcp/mcp_transcript.cpp

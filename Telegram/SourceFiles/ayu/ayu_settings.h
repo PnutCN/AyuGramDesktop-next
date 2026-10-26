@@ -271,6 +271,7 @@ public:
 	[[nodiscard]] bool saveMessagesHistory() const { return _saveMessagesHistory.current(); }
 	[[nodiscard]] bool saveForBots() const { return _saveForBots.current(); }
 	[[nodiscard]] bool mcpEnabled() const { return _mcpEnabled.current(); }
+	[[nodiscard]] bool mcpAllowNetwork() const { return _mcpAllowNetwork.current(); }
 	[[nodiscard]] bool filtersEnabled() const { return _filtersEnabled.current(); }
 	[[nodiscard]] bool filtersEnabledInChats() const { return _filtersEnabledInChats.current(); }
 	[[nodiscard]] bool hideFromBlocked() const { return _hideFromBlocked.current(); }
@@ -359,6 +360,7 @@ public:
 	void setSaveMessagesHistory(bool val);
 	void setSaveForBots(bool val);
 	void setMcpEnabled(bool val);
+	void setMcpAllowNetwork(bool val);
 	void setFiltersEnabled(bool val);
 	void setFiltersEnabledInChats(bool val);
 	void setHideFromBlocked(bool val);
@@ -631,6 +633,7 @@ private:
 	rpl::variable<bool> _saveMessagesHistory = true;
 	rpl::variable<bool> _saveForBots = false;
 	rpl::variable<bool> _mcpEnabled = false;
+	rpl::variable<bool> _mcpAllowNetwork = false;
 	std::unordered_set<int64> _shadowBanIds;
 	rpl::variable<bool> _filtersEnabled = false;
 	rpl::variable<bool> _filtersEnabledInChats = false;
