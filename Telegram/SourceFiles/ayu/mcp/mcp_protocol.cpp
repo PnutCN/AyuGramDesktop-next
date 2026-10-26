@@ -96,7 +96,7 @@ struct Method {
 		{ u"code"_q, e.code },
 		{ u"message"_q, e.message },
 	};
-	if (!e.data.isUndefined()) {
+	if (!e.data.isNull() && !e.data.isUndefined()) {
 		error.insert(u"data"_q, e.data);
 	}
 	return {
