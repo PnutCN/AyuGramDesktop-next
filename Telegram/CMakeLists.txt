@@ -266,6 +266,7 @@ set(ayugram_files
         ayu/mcp/mcp_transcript.h
         ayu/mcp/tools/mcp_tools.h
         ayu/mcp/tools/mcp_tools_chats.cpp
+        ayu/mcp/tools/mcp_tools_history.cpp
         ayu/mcp/tools/mcp_tools_messages.cpp
 
         info/profile/info_profile_music_button.cpp

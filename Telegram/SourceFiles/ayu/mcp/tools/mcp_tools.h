@@ -10,5 +10,6 @@ namespace AyuMcp {
 
 void registerChatTools();
 void registerMessageTools();
+void registerHistoryTools();
 
 } // namespace AyuMcp
