@@ -10,6 +10,7 @@
 #include "tray.h"
 #include "ayu/ayu_ui_settings.h"
 #include "ayu/ayu_worker.h"
+#include "ayu/mcp/mcp_server.h"
 #include "ayu/features/streamer_mode/streamer_mode.h"
 #include "ayu/ui/ayu_logo.h"
 #include "core/application.h"
@@ -518,6 +519,7 @@ void AyuSettings::validate() {
 	validateRange(_messageBubbleRadius, 0, 16, defaults._messageBubbleRadius);
 	validateRange(_wideMultiplier, 0.5, 4.0, defaults._wideMultiplier);
 	validateRange(_avatarCorners, 0, AyuUiSettings::kMaxAvatarCorners, defaults._avatarCorners);
+	validateRange(_mcpPort, AyuMcp::kMinPort, AyuMcp::kMaxPort, defaults._mcpPort);
 
 	const auto embeddedType = _messageShotSettings._embeddedThemeType.current();
 	auto embeddedTypeValid = (embeddedType == -1) || (embeddedType >= 0 && embeddedType <= 3); // from Window::Theme::EmbeddedType::DayBlue to Window::Theme::EmbeddedType::NightGreen
@@ -538,6 +540,12 @@ void AyuSettings::setSaveDeletedMessages(bool val) {
 	save();
 }
 
+void AyuSettings::setSaveDeletedMedia(bool val) {
+	if (_saveDeletedMedia.current() == val) return;
+	_saveDeletedMedia = val;
+	save();
+}
+
 void AyuSettings::setSaveMessagesHistory(bool val) {
 	if (_saveMessagesHistory.current() == val) return;
 	_saveMessagesHistory = val;
@@ -548,6 +556,26 @@ void AyuSettings::setSaveForBots(bool val) {
 	if (_saveForBots.current() == val) return;
 	_saveForBots = val;
 	save();
+}
+
+void AyuSettings::setMcpEnabled(bool val) {
+	if (_mcpEnabled.current() == val) return;
+	_mcpEnabled = val;
+	save();
+	AyuMcp::applySettings(true);
+}
+
+void AyuSettings::setMcpAllowNetwork(bool val) {
+	if (_mcpAllowNetwork.current() == val) return;
+	_mcpAllowNetwork = val;
+	save();
+}
+
+void AyuSettings::setMcpPort(int val) {
+	if (_mcpPort.current() == val) return;
+	_mcpPort = val;
+	save();
+	AyuMcp::applySettings(true);
 }
 
 void AyuSettings::setFiltersEnabled(bool val) {
@@ -1079,8 +1107,12 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"ghostModeSettings", ghostAccounts},
 		{"useGlobalGhostMode", s._useGlobalGhostMode.current()},
 		{"saveDeletedMessages", s._saveDeletedMessages.current()},
+		{"saveDeletedMedia", s._saveDeletedMedia.current()},
 		{"saveMessagesHistory", s._saveMessagesHistory.current()},
 		{"saveForBots", s._saveForBots.current()},
+		{"mcpEnabled", s._mcpEnabled.current()},
+		{"mcpAllowNetwork", s._mcpAllowNetwork.current()},
+		{"mcpPort", s._mcpPort.current()},
 		{"shadowBanIds", s._shadowBanIds},
 		{"filtersEnabled", s._filtersEnabled.current()},
 		{"filtersEnabledInChats", s._filtersEnabledInChats.current()},
@@ -1183,8 +1215,12 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 
 	s._useGlobalGhostMode = j.value("useGlobalGhostMode", defaults._useGlobalGhostMode.current());
 	s._saveDeletedMessages = j.value("saveDeletedMessages", defaults._saveDeletedMessages.current());
+	s._saveDeletedMedia = j.value("saveDeletedMedia", defaults._saveDeletedMedia.current());
 	s._saveMessagesHistory = j.value("saveMessagesHistory", defaults._saveMessagesHistory.current());
 	s._saveForBots = j.value("saveForBots", defaults._saveForBots.current());
+	s._mcpEnabled = j.value("mcpEnabled", defaults._mcpEnabled.current());
+	s._mcpAllowNetwork = j.value("mcpAllowNetwork", defaults._mcpAllowNetwork.current());
+	s._mcpPort = j.value("mcpPort", defaults._mcpPort.current());
 	s._shadowBanIds = j.value("shadowBanIds", defaults._shadowBanIds);
 	s._filtersEnabled = j.value("filtersEnabled", defaults._filtersEnabled.current());
 	s._filtersEnabledInChats = j.value("filtersEnabledInChats", defaults._filtersEnabledInChats.current());

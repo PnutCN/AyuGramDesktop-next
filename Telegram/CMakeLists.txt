@@ -272,9 +272,29 @@ set(ayugram_files
         ayu/features/filters/filters_utils.h
         ayu/data/messages_storage.cpp
         ayu/data/messages_storage.h
+        ayu/data/media_storage.cpp
+        ayu/data/media_storage.h
         ayu/data/entities.h
         ayu/data/ayu_database.cpp
         ayu/data/ayu_database.h
+        ayu/mcp/mcp_auth.cpp
+        ayu/mcp/mcp_auth.h
+        ayu/mcp/mcp_context.cpp
+        ayu/mcp/mcp_context.h
+        ayu/mcp/mcp_protocol.cpp
+        ayu/mcp/mcp_protocol.h
+        ayu/mcp/mcp_registry.cpp
+        ayu/mcp/mcp_registry.h
+        ayu/mcp/mcp_remote.cpp
+        ayu/mcp/mcp_remote.h
+        ayu/mcp/mcp_server.cpp
+        ayu/mcp/mcp_server.h
+        ayu/mcp/mcp_transcript.cpp
+        ayu/mcp/mcp_transcript.h
+        ayu/mcp/tools/mcp_tools.h
+        ayu/mcp/tools/mcp_tools_chats.cpp
+        ayu/mcp/tools/mcp_tools_history.cpp
+        ayu/mcp/tools/mcp_tools_messages.cpp
 
         info/profile/info_profile_music_button.cpp
         info/profile/info_profile_music_button.h

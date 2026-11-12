@@ -8,6 +8,8 @@
 
 #include "lang_auto.h"
 #include "ayu/ayu_settings.h"
+#include "ayu/mcp/mcp_auth.h"
+#include "ayu/mcp/mcp_server.h"
 #include "ayu/ui/ayu_userpic.h"
 #include "ayu/ui/settings/ayu_builder.h"
 #include "ayu/ui/settings/settings_ayu_utils.h"
@@ -33,11 +35,18 @@
 #include "ui/boxes/single_choice_box.h"
 #include "ui/text/text.h"
 #include "ui/toast/toast.h"
+#include "ui/layers/generic_box.h"
 #include "ui/widgets/buttons.h"
+#include "ui/widgets/fields/number_input.h"
+#include "ui/widgets/labels.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/menu/menu_item_base.h"
+#include "ui/wrap/padding_wrap.h"
 #include "ui/wrap/vertical_layout.h"
 #include "window/window_session_controller.h"
+
+#include <QtGui/QClipboard>
+#include <QtGui/QGuiApplication>
 
 namespace Settings {
 
@@ -650,6 +659,12 @@ void BuildSpyEssentials(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.getter = &AyuSettings::saveMessagesHistory,
 		.setter = &AyuSettings::setSaveMessagesHistory,
 	});
+	ayu.addSettingToggle({
+		.id = u"ayu/saveDeletedMedia"_q,
+		.title = tr::ayu_MessageSavingSaveMedia(),
+		.getter = &AyuSettings::saveDeletedMedia,
+		.setter = &AyuSettings::setSaveDeletedMedia,
+	});
 
 	ayu.addSectionDivider();
 
@@ -678,6 +693,88 @@ void BuildOther(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	});
 }
 
+void ShowMcpPortBox(not_null<Window::SessionController*> controller) {
+	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+		box->setTitle(tr::ayu_McpPort());
+		const auto wrap = box->addRow(object_ptr<Ui::FixedHeightWidget>(
+			box,
+			st::defaultInputField.heightMin));
+		const auto field = Ui::CreateChild<Ui::NumberInput>(
+			wrap,
+			st::defaultInputField,
+			tr::ayu_McpPort(),
+			QString::number(AyuSettings::getInstance().mcpPort()),
+			AyuMcp::kMaxPort);
+		wrap->widthValue() | rpl::on_next([=](int width) {
+			field->resize(width, field->height());
+		}, wrap->lifetime());
+		box->addRow(object_ptr<Ui::FlatLabel>(
+			box,
+			tr::ayu_McpPortAbout(),
+			st::boxLabel));
+		const auto save = [=] {
+			const auto port = field->getLastText().toInt();
+			if (port < AyuMcp::kMinPort || port > AyuMcp::kMaxPort) {
+				field->showError();
+				return;
+			}
+			AyuSettings::getInstance().setMcpPort(port);
+			box->closeBox();
+		};
+		box->setFocusCallback([=] { field->setFocusFast(); });
+		QObject::connect(field, &Ui::NumberInput::submitted, box, save);
+		box->addButton(tr::lng_settings_save(), save);
+		box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+	}));
+}
+
+void BuildMcp(SectionBuilder &builder, AyuSectionBuilder &ayu) {
+	builder.addSubsectionTitle(tr::ayu_McpHeader());
+
+	ayu.addSettingToggle({
+		.id = u"ayu/mcpEnabled"_q,
+		.title = tr::ayu_McpEnabled(),
+		.getter = &AyuSettings::mcpEnabled,
+		.setter = &AyuSettings::setMcpEnabled,
+	});
+	ayu.addSettingToggle({
+		.id = u"ayu/mcpAllowNetwork"_q,
+		.title = tr::ayu_McpAllowNetwork(),
+		.getter = &AyuSettings::mcpAllowNetwork,
+		.setter = &AyuSettings::setMcpAllowNetwork,
+		.shown = AyuSettings::getInstance().mcpEnabledValue(),
+	});
+	builder.addButton({
+		.id = u"ayu/mcpCopyConfig"_q,
+		.title = tr::ayu_McpCopyConfig(),
+		.onClick = [] {
+			QGuiApplication::clipboard()->setText(AyuMcp::clientConfig());
+			Ui::Toast::Show(tr::ayu_McpConfigCopied(tr::now));
+		},
+		.shown = AyuSettings::getInstance().mcpEnabledValue(),
+	});
+	const auto controller = builder.controller();
+	builder.addButton({
+		.id = u"ayu/mcpPort"_q,
+		.title = tr::ayu_McpPort(),
+		.label = AyuSettings::getInstance().mcpPortValue(
+		) | rpl::map([](int port) { return QString::number(port); }),
+		.onClick = [=] { ShowMcpPortBox(controller); },
+		.shown = AyuSettings::getInstance().mcpEnabledValue(),
+	});
+	builder.addButton({
+		.id = u"ayu/mcpResetToken"_q,
+		.title = tr::ayu_McpResetToken(),
+		.onClick = [] {
+			AyuMcp::resetToken();
+			Ui::Toast::Show(tr::ayu_McpTokenReset(tr::now));
+		},
+		.shown = AyuSettings::getInstance().mcpEnabledValue(),
+	});
+	builder.addSkip();
+	builder.addDividerText(tr::ayu_McpDescription());
+}
+
 const auto kMeta = BuildHelper({
 	.id = AyuGhost::Id(),
 	.parentId = AyuMain::Id(),
@@ -694,7 +791,9 @@ const auto kMeta = BuildHelper({
 
 	ayu.addSectionDivider();
 	BuildOther(builder, ayu);
-	builder.addSkip();
+
+	ayu.addSectionDivider();
+	BuildMcp(builder, ayu);
 });
 
 } // namespace
