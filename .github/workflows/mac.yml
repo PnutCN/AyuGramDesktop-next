@@ -91,7 +91,7 @@ jobs:
       # 命中缓存时跳过,避免误删已经就绪的库。
       - name: Free up some disk space.
         if: steps.cache-libs.outputs.cache-hit != 'true'
-        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -name '*.prl' -o -name '*.pri' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
+        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -name '*.prl' -o -name '*.pri' -o -path '*/include/*' -o -path '*/local/src/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
 
       - name: AyuGram Next build.
         if: github.event.inputs.only_cache != 'true'
